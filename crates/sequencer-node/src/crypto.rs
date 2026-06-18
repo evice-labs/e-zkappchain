@@ -1,11 +1,13 @@
 // crates/sequencer-node/src/crypto.rs
 
+use crate::{
+    Address, FullPublicKey,
+};
 use blst::min_pk::{
     AggregateSignature, PublicKey as BlsPublicKey, SecretKey as BlsSecretKey,
     Signature as BlsSignature,
 };
-use hash_db::Hasher;
-use keccak_hasher::KeccakHasher;
+use sha3::{Digest, Keccak256};
 use pqcrypto_dilithium::dilithium2::{
     detached_sign, keypair as dilithium_keypair, verify_detached_signature, DetachedSignature,
     PublicKey as DilithiumPublicKey, SecretKey as DilithiumSecretKey,
@@ -17,11 +19,6 @@ use pqcrypto_traits::sign::{
 use rand::RngCore;
 use schnorrkel::Keypair as SchnorrkelKeypair;
 use std::collections::HashMap;
-use log::warn;
-use crate::{
-    consensus::{FinalityCertificate, FinalityVote},
-    Address, FullPublicKey,
-};
 
 pub const PUBLIC_KEY_SIZE: usize = 1312;
 pub const ADDRESS_SIZE: usize = 20;
@@ -29,7 +26,9 @@ pub const PRIVATE_KEY_SIZE: usize = 2560;
 pub const SIGNATURE_SIZE: usize = 2420;
 
 pub fn public_key_to_address(public_key: &[u8; PUBLIC_KEY_SIZE]) -> Address {
-    let hash = KeccakHasher::hash(public_key);
+    let mut hasher = Keccak256::new();
+    hasher.update(public_key);
+    let hash = hasher.finalize();
     let mut address_bytes = [0u8; ADDRESS_SIZE];
     address_bytes.copy_from_slice(&hash[hash.len() - ADDRESS_SIZE..]);
     Address(address_bytes)
