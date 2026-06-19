@@ -1,25 +1,26 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/common",
-    "crates/engine",
-    "crates/ffi",
-    "crates/sequencer-node",
-    "crates/simulator",
-    "crates/solver-service",
-    "crates/user-client",
-    "crates/zk-core",
-    "crates/zk-prover",
+    "sequencer-core",
+    "zkapp/common",
+    "zkapp/engine",
+    "zkapp/ffi",
+    "zkapp/node",
+    "zkapp/simulator",
+    "zkapp/solver-service",
+    "zkapp/user-client",
+    "zkapp/zk-core",
+    "zkapp/zk-prover",
 ]
 
 [workspace.dependencies]
 # Internal Crates
-common = { path = "crates/common" }
-engine = { path = "crates/engine" }
-simulator = { path = "crates/simulator" }
-sequencer = { path = "crates/sequencer-node" }
-zk-prover = { path = "crates/zk-prover" }
-zk-core = { path = "crates/zk-core" }
+common = { path = "zkapp/common" }
+engine = { path = "zkapp/engine" }
+simulator = { path = "zkapp/simulator" }
+sequencer-core = { path = "sequencer-core" }
+zk-prover = { path = "zkapp/zk-prover" }
+zk-core = { path = "zkapp/zk-core" }
 
 # Concurrency & Runtime
 tokio = { version = "1", features = ["full"] }
