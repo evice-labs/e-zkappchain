@@ -13,7 +13,6 @@ use libp2p::{
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use log::{debug, error, info, warn};
-use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -21,22 +20,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::select;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex, RwLock};
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio::time::interval;
 
 use crate::consensus::{
-    ConsensusMessage, ConsensusState, OptimisticConfirmation, PendingBlock, QuorumCertificate,
+    ConsensusMessage, ConsensusState, OptimisticConfirmation, PendingBlock,
     VelocityVote,
 };
-use crate::crypto;
-use crate::{Address, Transaction};
-use crate::{Block, BlockHeader, ChainMessage};
+use crate::{Address, Block, ChainMessage, Transaction};
 
 const INITIAL_PEER_SCORE: i32 = 0;
 const MAX_PEER_SCORE: i32 = 100;
 const BAN_THRESHOLD: i32 = -50;
-const PENALTY_INVALID_SIGNATURE: i32 = -50;
-const PENALTY_BAD_TRANSACTION: i32 = -10;
 const PENALTY_DESERIALIZATION_ERROR: i32 = -5;
 const REWARD_VALID_MESSAGE: i32 = 2;
 const BAN_DURATION: Duration = Duration::from_secs(1800);
@@ -76,22 +71,7 @@ impl PeerInfo {
         self.score = (self.score + reward).min(MAX_PEER_SCORE);
     }
 
-    fn is_currently_banned(&mut self) -> bool {
-        if self.is_banned {
-            if let Some(ban_until) = self.ban_until {
-                if Instant::now() < ban_until {
-                    return true;
-                } else {
-                    info!("Masa ban untuk peer telah berakhir. Mereset skor.");
-                    self.is_banned = false;
-                    self.ban_until = None;
-                    self.score = INITIAL_PEER_SCORE;
-                    return false;
-                }
-            }
-        }
-        false
-    }
+
 }
 
 #[derive(Debug)]
@@ -172,7 +152,7 @@ impl AddressBook {
                         let mut validator_addr = [0u8; 20];
                         validator_addr.copy_from_slice(&addr_bytes);
 
-                        if let Ok(multiaddr) = std::str::FromStr::from_str(&multiaddr_str) {
+                        if let Ok(multiaddr) = multiaddr_str.parse::<libp2p::Multiaddr>() {
                             if let Some(peer_id) = multiaddr.iter().find_map(|p| {
                                 if let libp2p::multiaddr::Protocol::P2p(peer_id) = p {
                                     Some(peer_id)
@@ -251,8 +231,8 @@ pub async fn run(
     p2p_keypair: P2pKeypair,
     bootstrap_nodes: Vec<String>,
     p2p_port: u16,
-    p2p_to_consensus_tx: mpsc::Sender<(ConsensusMessage, PeerId, Option<Vec<Transaction>>)>,
-    txs_response_to_consensus_tx: mpsc::Sender<SyncResponse>,
+    p2p_to_consensus_tx: mpsc::Sender<(ConsensusMessage, PeerId, Option<tokio::sync::oneshot::Sender<SyncResponse>>)>,
+    _txs_response_to_consensus_tx: mpsc::Sender<SyncResponse>,
     is_bootstrap_node: bool,
     consensus_state: Option<Arc<RwLock<ConsensusState>>>,
     mut p2p_cmd_rx: mpsc::Receiver<P2pCommand>,
@@ -398,15 +378,7 @@ pub async fn run(
                             }
                         }
                     }
-                    P2pCommand::BroadcastMissingBlockRequest(block_hash) => {
-                        let request = SyncRequest::GetFullProposal(block_hash.clone());
-                        if let Ok(encoded) = borsh::to_vec(&request) {
-                            info!("[P2P FALLBACK] Menyiarkan permintaan untuk blok yang hilang 0x{} ke jaringan.", hex::encode(&block_hash[..4]));
-                            if let Err(e) = swarm.behaviour_mut().gossipsub.publish(fallback_sync_topic.clone(), encoded) {
-                                error!("[P2P FALLBACK] Gagal menyiarkan permintaan blok: {:?}", e);
-                            }
-                        }
-                    }
+
                     P2pCommand::SendDirectRequest { destination, request } => {
                         match &request {
                             SyncRequest::SubmitVote(vote) => {
@@ -605,7 +577,7 @@ pub async fn run(
 
                         tokio::spawn(async move {
                             let mut scores = peer_scores_clone.lock().await;
-                            let mut peer_info = scores.entry(peer_id).or_insert_with(PeerInfo::new);
+                            let peer_info = scores.entry(peer_id).or_insert_with(PeerInfo::new);
 
                             let penalty = match borsh::from_slice::<ChainMessage>(&message.data) {
                                 Ok(chain_message) => match chain_message {
@@ -625,7 +597,6 @@ pub async fn run(
                                         // Ignore L1 transactions
                                         0
                                     }
-                                    _ => 0,
                                 },
                                 Err(_) => PENALTY_DESERIALIZATION_ERROR,
                             };

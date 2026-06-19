@@ -1,35 +1,26 @@
 // crates/sequencer-node/src/consensus.rs
 
+use async_recursion::async_recursion;
 use bincode::{Decode, Encode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use libp2p::PeerId;
-use log::warn;
 use lru::LruCache;
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, Bytes};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::time::Instant;
-use tokio::sync::RwLock;
-
-use async_recursion::async_recursion;
-use log::{debug, error, info, warn};
-use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Instant, Duration};
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio::time::interval;
-use lru::LruCache;
-use sha2::Sha256;
 use rand::SeedableRng;
+use rand::seq::SliceRandom;
 
-use crate::crypto::{KeyPair, ValidatorKeys};
+use crate::crypto::{self, KeyPair, ValidatorKeys};
 use crate::p2p::{AddressBook, P2pCommand, SyncRequest, SyncResponse};
-use libp2p::PeerId;
 
 pub type ConsensusMsgTuple = (ConsensusMessage, PeerId, Option<oneshot::Sender<SyncResponse>>);
 
@@ -37,6 +28,7 @@ const PROPOSER_TIMEOUT: Duration = Duration::from_secs(10);
 const AEGIS_SUB_COMMITTEE_SIZE: usize = 4;
 use crate::{Address, Block, BlockHeader, ChainMessage, Signature, Transaction};
 
+#[derive(Clone)]
 pub struct ConsensusState {
     pub core_state: Arc<RwLock<CoreConsensusState>>,
     pub pending_proposals: Arc<RwLock<HashMap<Vec<u8>, PendingBlock>>>,
@@ -56,17 +48,17 @@ pub struct CoreConsensusState {
 
 pub struct ProposalQueues {
     pub pending_proposals_waiting_for_parent:
-        HashMap<Vec<u8>, Vec<(ConsensusMessage, PeerId, Option<Vec<Transaction>>)>>,
+        HashMap<Vec<u8>, Vec<ConsensusMsgTuple>>,
     pub pending_proposals_awaiting_parent_state:
-        HashMap<Vec<u8>, Vec<(ConsensusMessage, PeerId, Option<Vec<Transaction>>)>>,
+        HashMap<Vec<u8>, Vec<ConsensusMsgTuple>>,
     pub premature_proposals:
-        HashMap<u64, Vec<(ConsensusMessage, PeerId, Option<Vec<Transaction>>)>>,
+        HashMap<u64, Vec<ConsensusMsgTuple>>,
     pub stale_qc_request: HashMap<Vec<u8>, (u64, Instant)>,
     pub pending_qc_waiting_for_block: HashMap<Vec<u8>, Vec<(QuorumCertificate, PeerId)>>,
 }
 
 impl ConsensusState {
-    pub fn new(initial_qc: QuorumCertificate, initial_block_hash: Vec<u8>) -> Self {
+    pub fn new(initial_qc: QuorumCertificate, _initial_block_hash: Vec<u8>) -> Self {
         Self {
             core_state: Arc::new(RwLock::new(CoreConsensusState {
                 current_round: 0,
@@ -133,7 +125,7 @@ impl VelocityVote {
 
         for vote in votes.into_iter().filter(|v| v.round_id == expected_round) {
             if unique_voters.insert(vote.voter_address) {
-                verified_signatures.push((vote.voter_address, vote.signature));
+                verified_signatures.push((vote.voter_address, vote.signature.clone()));
             }
         }
 
@@ -218,49 +210,28 @@ impl QuorumCertificate {
         }
     }
 }
+
+
 #[derive(Clone)]
-struct ConsensusEngine {
-    my_address: Address,
-    validator_keys: Arc<ValidatorKeys>,
-    p2p_cmd_tx: mpsc::Sender<P2pCommand>,
-    state: ConsensusState,
-    consensus_ready: Arc<AtomicBool>,
-    dkg_state: DkgState,
-    address_book: Arc<Mutex<AddressBook>>,
-    pending_tx_requests: Arc<RwLock<HashMap<u64, oneshot::Sender<Vec<Transaction>>>>>,
-    tx_gossip: mpsc::Sender<ChainMessage>,
-    chain_id: String,
+pub struct ConsensusEngine {
+    pub my_address: Address,
+    pub validator_keys: Arc<ValidatorKeys>,
+    pub p2p_cmd_tx: mpsc::Sender<P2pCommand>,
+    pub state: ConsensusState,
+    pub consensus_ready: Arc<AtomicBool>,
+    pub address_book: Arc<Mutex<AddressBook>>,
+    pub pending_tx_requests: Arc<RwLock<HashMap<u64, oneshot::Sender<Vec<Transaction>>>>>,
+    pub tx_gossip: mpsc::Sender<ChainMessage>,
+    pub chain_id: String,
 }
 
-#[derive(Debug)]
-enum ConsensusOffense {
-    StateRootMismatch {
-        header: BlockHeader,
-        computed_state_root: Vec<u8>,
-    },
-    FailedSimulation {
-        header: BlockHeader,
-        error: String,
-    },
-    InvalidSignature {
-        header: BlockHeader,
-    },
-    TransactionsRootMismatch {
-        header: BlockHeader,
-    },
-    UnknownProposer {
-        header: BlockHeader,
-    },
-    MissingParent {
-        parent_hash: Vec<u8>,
-    },
-}
+
 
 impl ConsensusEngine {
     pub async fn run(
         self,
         mut p2p_msg_rx: mpsc::Receiver<ConsensusMsgTuple>,
-        mut txs_response_from_p2p_rx: mpsc::Receiver<SyncResponse>,
+        _txs_response_from_p2p_rx: mpsc::Receiver<SyncResponse>,
     ) {
         info!("[AEGIS] Mesin Konsensus Aegis dimulai, menunggu sinyal ConsensusReady...");
         loop {
@@ -294,7 +265,7 @@ impl ConsensusEngine {
                 continue;
             }
 
-            let (highest_qc_view, highest_qc_hash, current_round, current_step, step_start_time) = {
+            let (highest_qc_view, _highest_qc_hash, current_round, current_step, step_start_time) = {
                 let core = self.state.core_state.read().await;
                 (
                     core.highest_seen_qc.view_number,
@@ -489,7 +460,7 @@ impl ConsensusEngine {
                 round_id: round,
                 block_hash: block_hash.clone(),
                 voter_address: self.my_address,
-                signature: [0; crypto::SIGNATURE_SIZE],
+                signature: [0; crypto::SIGNATURE_SIZE].to_vec(),
             };
             vote.sign(&self.validator_keys.signing_keys)
         };
@@ -511,7 +482,7 @@ impl ConsensusEngine {
         &self,
         msg: ConsensusMessage,
         source_peer: PeerId,
-        _transactions_opt: Option<Vec<Transaction>>,
+        _response_channel: Option<tokio::sync::oneshot::Sender<SyncResponse>>,
     ) {
         let message_hash = msg.hash();
 
@@ -549,21 +520,16 @@ impl ConsensusEngine {
         }
     }
 
-    async fn handle_block_proposal(&self, block: Block, source_peer: PeerId) {
+    async fn handle_block_proposal(&self, _block: Block, source_peer: PeerId) {
         // Dummy implementation for stateless sequencer
         info!("[AEGIS] Memproses proposal blok dari {}", source_peer);
-        self.pre_validate_proposal_concurrently(&block).await.unwrap_or_default();
+        self.pre_validate_proposal_concurrently().await;
     }
 
     #[async_recursion]
-    async fn pre_validate_proposal_concurrently(
-        &self,
-        _block: &Block,
-    ) -> Result<(), ConsensusOffense> {
-        Ok(())
-    }
-
-    async fn process_votes_for_block(&self, block_hash: &[u8]) {}
+    async fn pre_validate_proposal_concurrently(&self) { }
+    
+    async fn process_votes_for_block(&self, _block_hash: &[u8]) {}
 
     async fn handle_velocity_vote(&self, vote: VelocityVote) {
         let block_hash = vote.block_hash.clone();
@@ -682,59 +648,5 @@ impl ConsensusEngine {
         }
 
         committee
-    }
-
-    #[async_recursion]
-    async fn reprocess_dependant_proposals(&self, newly_arrived_block_hash: &[u8]) {
-        self.state
-            .proposal_queues
-            .write()
-            .await
-            .stale_qc_request
-            .remove(newly_arrived_block_hash);
-
-        let proposals_to_reprocess = self
-            .state
-            .proposal_queues
-            .write()
-            .await
-            .pending_proposals_waiting_for_parent
-            .remove(newly_arrived_block_hash);
-
-        if let Some(proposals) = proposals_to_reprocess {
-            info!(
-                "[AEGIS] Blok induk 0x{} telah tiba. Memproses ulang {} proposal yang tertunda.",
-                hex::encode(&newly_arrived_block_hash[..4]),
-                proposals.len()
-            );
-            for (pending_msg, pending_peer, pending_txs) in proposals {
-                let self_clone = self.clone();
-                tokio::spawn(async move {
-                    self_clone
-                        .handle_consensus_message(pending_msg, pending_peer, pending_txs)
-                        .await;
-                });
-            }
-        }
-
-        let proposals_to_reprocess_state = self
-            .state
-            .proposal_queues
-            .write()
-            .await
-            .pending_proposals_awaiting_parent_state
-            .remove(newly_arrived_block_hash);
-
-        if let Some(proposals) = proposals_to_reprocess_state {
-            info!("[AEGIS] State untuk induk 0x{} telah siap. Memproses ulang {} proposal yang tertunda.", hex::encode(&newly_arrived_block_hash[..4]), proposals.len());
-            for (pending_msg, pending_peer, pending_txs) in proposals {
-                let self_clone = self.clone();
-                tokio::spawn(async move {
-                    self_clone
-                        .handle_consensus_message(pending_msg, pending_peer, pending_txs)
-                        .await;
-                });
-            }
-        }
     }
 }

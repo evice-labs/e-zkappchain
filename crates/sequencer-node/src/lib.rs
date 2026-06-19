@@ -3,15 +3,15 @@
 use bincode::{Decode, Encode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, Bytes};
+use serde_with::serde_as;
 use sha2::Digest;
 use std::cmp::Ordering;
 use std::convert::AsRef;
 
-use crate::crypto::{public_key_to_address, PUBLIC_KEY_SIZE};
+use crate::crypto::{public_key_to_address, ADDRESS_SIZE, PUBLIC_KEY_SIZE};
 
 pub type Signature = Vec<u8>;
-pub use evice_core::{Address, Leaf, MerkleTreeConfig, WithdrawalProof};
+pub type VrfPublicKeyBytes = [u8; 32];
 
 pub mod consensus;
 pub mod crypto;
@@ -20,7 +20,35 @@ pub mod keystore;
 pub mod p2p;
 pub mod settlement;
 
-pub type VrfPublicKeyBytes = [u8; 32];
+#[derive(
+    Debug, 
+    Clone, 
+    Copy, 
+    PartialEq, 
+    Eq, 
+    Hash, 
+    BorshSerialize, 
+    BorshDeserialize, 
+    Serialize, 
+    Deserialize,
+    Encode,
+    Decode,
+    PartialOrd,
+    Ord
+)]
+pub struct Address(pub [u8; ADDRESS_SIZE]);
+
+impl AsRef<[u8]> for Address {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<[u8; 20]> for Address {
+    fn from(bytes: [u8; 20]) -> Self {
+        Address(bytes)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct FullPublicKey(#[serde(with = "serde_bytes")] pub [u8; PUBLIC_KEY_SIZE]);
@@ -146,9 +174,6 @@ impl TransactionData {
             TransactionData::RegisterAsSequencer | TransactionData::DeregisterAsSequencer => {
                 BASE_TX_GAS + 10_000
             }
-            // TransactionData::WithdrawFromTreasury { approvals, .. } => {
-            //     BASE_TX_GAS + 25_000 + (approvals.len() as u64 * 5_000)
-            // }
             TransactionData::UpdateNetworkIdentity { multiaddr } => {
                 BASE_TX_GAS + 1_000 + (multiaddr.len() as u64 * 20)
             }

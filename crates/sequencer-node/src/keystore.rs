@@ -1,6 +1,6 @@
 // crates/sequencer-node/src/keystore.rs
 
-use rand_core::RngCore;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{File, OpenOptions},
@@ -20,7 +20,7 @@ use scrypt::{
 use sha3::{Digest, Keccak256};
 
 use chacha20poly1305::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     XChaCha20Poly1305, XNonce,
 };
 
@@ -98,10 +98,10 @@ impl Keystore {
         pub_key_full_bytes: &[u8; PUBLIC_KEY_SIZE],
     ) -> Result<Self, KeystoreError> {
         let mut salt = [0u8; 32];
-        OsRng.fill_bytes(&mut salt);
+        rand::rng().fill_bytes(&mut salt);
 
         let mut nonce_bytes = [0u8; 24];
-        OsRng.fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = XNonce::from(nonce_bytes);
 
         let kdfparams = KdfParams {
@@ -118,7 +118,7 @@ impl Keystore {
 
         let cipher = XChaCha20Poly1305::new(&derived_key.into());
 
-        let ciphertext_vec = cipher.encrypt(nonce, pk_bytes.as_ref())?;
+        let ciphertext_vec = cipher.encrypt(&nonce, pk_bytes.as_ref())?;
         let ciphertext = hex::encode(&ciphertext_vec);
 
         let mac = Keccak256::digest(&ciphertext_vec);
@@ -171,7 +171,7 @@ impl Keystore {
         scrypt(password.as_bytes(), &salt, &scrypt_params, &mut derived_key)?;
 
         let cipher = XChaCha20Poly1305::new(&derived_key.into());
-        let decrypted_vec = cipher.decrypt(nonce, ciphertext_bytes.as_ref())?;
+        let decrypted_vec = cipher.decrypt(&nonce, ciphertext_bytes.as_ref())?;
 
         derived_key.zeroize();
 

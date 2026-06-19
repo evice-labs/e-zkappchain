@@ -1,60 +1,52 @@
 // crates/sequencer-node/src/main.rs
 
-use alloy_primitives::FixedBytes;
-use async_recursion::async_recursion;
-use sha2::Digest;
 use std::{
-    collections::{HashMap, VecDeque},
-    fs::{self, File, OpenOptions},
-    io::Write,
-    net::SocketAddr,
-    path::{Path, PathBuf},
+    collections::HashMap,
+    fs::{self, File},
+    path::Path,
     pin::Pin,
     str::FromStr,
+    io::Write,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::State,
     response::IntoResponse,
-    routing::get,
-    Router,
 };
 
 use blst::min_pk::SecretKey as BlsSecretKey;
 use clap::Parser;
-use engine::processor::{Command, MarketProcessor};
+use engine::processor::Command;
 use engine::{EngineEvent, Side as EngineSide};
 use libp2p::identity::{ed25519, Keypair as P2pKeypair};
 use libp2p::PeerId;
-use log::{debug, error, info, warn};
-use rand::{seq::SliceRandom, Rng, RngCore, SeedableRng};
+use log::{error, info, warn};
+use rand::{Rng, RngCore};
 use rpassword::read_password;
 use schnorrkel::SecretKey as SchnorrkelSecretKey;
 use sequencer_node::{
     consensus::{
-        ConsensusEngine, ConsensusMessage, ConsensusState, FinalityCertificate, FinalityVote,
-        PendingBlock, QuorumCertificate, VelocityVote,
+        ConsensusEngine, ConsensusMessage, ConsensusState,
+        QuorumCertificate,
     },
-    crypto::{self, public_key_to_address, DkgState, KeyPair, ValidatorKeys},
+    crypto::{public_key_to_address, KeyPair, ValidatorKeys},
     genesis::{Genesis, GenesisAccount},
     keystore::Keystore,
-    p2p::{self, AddressBook, P2pCommand, SyncRequest, SyncResponse},
-    Address, Block, BlockHeader, ChainMessage, FullPublicKey, Transaction, TransactionData,
+    p2p::{self, P2pCommand, SyncResponse},
+    ChainMessage,
 };
 use tokio::{
     select,
-    sync::{broadcast, mpsc, oneshot, Mutex, Notify, RwLock},
-    time::interval,
+    sync::{broadcast, mpsc, oneshot, Mutex, RwLock},
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{transport::Server, Request, Response, Status};
-use tracing::info;
 use tracing_log::LogTracer;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use trading::trading_engine_server::{TradingEngine, TradingEngineServer};
@@ -70,14 +62,7 @@ pub mod trading {
     tonic::include_proto!("trading");
 }
 
-type ConsensusMsgTuple = (ConsensusMessage, PeerId, Option<Vec<Transaction>>);
-
-const MAX_TRANSACTIONS_PER_BLOCK: usize = 500;
-const SNAPSHOT_SYNC_THRESHOLD: u64 = 100;
-const AEGIS_SUB_COMMITTEE_SIZE: usize = 6;
-const PROPOSER_TIMEOUT: Duration = Duration::from_millis(1200);
-const SYNC_MODERATE_GAP_THRESHOLD: u64 = 10;
-const MAX_PARALLEL_BODY_DOWNLOADS: usize = 30;
+type ConsensusMsgTuple = (ConsensusMessage, PeerId, Option<oneshot::Sender<SyncResponse>>);
 
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
@@ -93,6 +78,22 @@ struct Args {
         help = "Hanya cetak PeerId untuk db-path yang diberikan dan keluar."
     )]
     get_peer_id: bool,
+    #[clap(long)]
+    dev: bool,
+    #[clap(long, default_value = "./sequencer_data")]
+    db_path: String,
+    #[clap(long, default_value = "9000")]
+    metrics_port: u16,
+    #[clap(long)]
+    is_authority: bool,
+    #[clap(long)]
+    keystore_path: Option<String>,
+    #[clap(long)]
+    vrf_priv_key: Option<String>,
+    #[clap(long)]
+    bls_private_key: Option<String>,
+    #[clap(long)]
+    password: Option<String>,
 }
 
 #[tokio::main]
@@ -133,8 +134,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if args.bootstrap {
         info!("Mem-bootstrap state awal dan menghasilkan genesis.json yang lengkap...");
         const NUM_VALIDATORS: usize = 7;
-        const INITIAL_BALANCE: u128 = 1_000_000_000;
-        const INITIAL_STAKE: u128 = 50_000_000;
         let mut validator_keys_generated: Vec<ValidatorKeys> = Vec::new();
         let mut genesis_accounts = HashMap::new();
         let mut p2p_keypairs: Vec<P2pKeypair> = Vec::new();
@@ -156,8 +155,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             let account = GenesisAccount {
                 public_key: address_hex.clone(),
-                balance: (INITIAL_BALANCE - INITIAL_STAKE).to_string(),
-                staked_amount: INITIAL_STAKE.to_string(),
                 vrf_public_key: Some(hex::encode(keys.vrf_keys.public.to_bytes())),
                 bls_public_key: Some(hex::encode(bls_public_key.to_bytes())),
                 network_identity: Some(multiaddr),
@@ -171,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .as_secs(),
             chain_id: "evice-testnet-v1".to_string(),
 
-            parameters: crate::genesis::GenesisParameters {
+            parameters: sequencer_node::genesis::GenesisParameters {
                 aegis_sub_committee_size: 6,
                 aegis_gravity_epoch_length: 10,
                 proposer_timeout_ms: 1200,
@@ -226,7 +223,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .expect("File genesis.json tidak ditemukan atau tidak valid.");
 
         let chain_id = genesis.chain_id.clone();
-        let aegis_gravity_epoch_length = genesis.parameters.aegis_gravity_epoch_length;
         let genesis_time = genesis.genesis_time;
 
         let target_start_time =
@@ -255,7 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 "Menjalankan server metrik di http://0.0.0.0:{}/metrics",
                 metrics_port
             );
-            metrics::run_metrics_server(metrics_port);
+            // metrics::run_metrics_server(metrics_port);
         });
 
         let authority_validator_keys: Option<Arc<ValidatorKeys>> = if args.is_authority {
@@ -322,9 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             );
         }
 
-        let (tx_gossip, rx_gossip) = mpsc::channel::<ChainMessage>(100);
-        let (tx_sync_cmd, rx_sync_cmd) = mpsc::channel::<SyncRequest>(10);
-        let (tx_sync_resp, _) = broadcast::channel::<(SyncResponse, PeerId)>(100);
+        let (tx_gossip, _rx_gossip) = mpsc::channel::<ChainMessage>(100);
         let (p2p_cmd_tx, p2p_cmd_rx) = mpsc::channel::<P2pCommand>(100);
         let (consensus_msg_tx, consensus_msg_rx) = mpsc::channel::<ConsensusMsgTuple>(100);
 
@@ -335,40 +329,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         if let Some(ref keys) = authority_validator_keys {
             let my_address = public_key_to_address(&keys.signing_keys.public_key_bytes());
-            let (initial_qc, initial_block_hash, dkg_state) = {
+            let (initial_qc, initial_block_hash) = {
                 let genesis_qc = QuorumCertificate::genesis_qc();
                 let genesis_hash = vec![0u8; 32];
-
-                let mut participants = std::collections::HashMap::new();
-                for account in &genesis.accounts {
-                    if let Some(pk_bytes_hex) = &account.bls_public_key {
-                        if let Ok(pk_bytes) = hex::decode(pk_bytes_hex) {
-                            if let Ok(pk) = blst::min_pk::PublicKey::from_bytes(&pk_bytes) {
-                                if let Ok(addr_bytes) =
-                                    hex::decode(account.address.trim_start_matches("0x"))
-                                {
-                                    let mut addr = [0u8; 20];
-                                    if addr_bytes.len() == 20 {
-                                        addr.copy_from_slice(&addr_bytes);
-                                        participants.insert(addr, pk);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let threshold = if participants.is_empty() {
-                    1
-                } else {
-                    (participants.len() * 2 / 3) + 1
-                };
-                let dkg = DkgState {
-                    participants,
-                    threshold,
-                };
-
-                (genesis_qc, genesis_hash, dkg)
+                (genesis_qc, genesis_hash)
             };
 
             let state_struct = ConsensusState::new(initial_qc, initial_block_hash);
@@ -378,9 +342,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 my_address,
                 validator_keys: Arc::clone(keys),
                 p2p_cmd_tx: p2p_cmd_tx.clone(),
+                state: state_struct.clone(),
                 consensus_ready: consensus_ready_flag.clone(),
                 address_book: Arc::clone(&address_book),
-                pacesetter_notifier: Arc::new(Notify::new()),
+                pending_tx_requests: Arc::new(RwLock::new(HashMap::new())),
                 tx_gossip: tx_gossip.clone(),
                 chain_id: chain_id.clone(),
             };
@@ -821,7 +786,7 @@ impl TradingEngine for TradingService {
         &self,
         request: Request<trading::MempoolSubscribeRequest>,
     ) -> Result<Response<Self::SubscribeIntentMempoolStream>, Status> {
-        let req = request.into_inner();
+        let _req = request.into_inner();
 
         // Logika penyambungan asli ke Mempool L2 akan dilakukan di sini nanti
         let (_, rx) = tokio::sync::mpsc::channel(128);

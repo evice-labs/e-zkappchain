@@ -3,10 +3,7 @@
 use crate::{
     Address, FullPublicKey,
 };
-use blst::min_pk::{
-    AggregateSignature, PublicKey as BlsPublicKey, SecretKey as BlsSecretKey,
-    Signature as BlsSignature,
-};
+use blst::min_pk::SecretKey as BlsSecretKey;
 use sha3::{Digest, Keccak256};
 use pqcrypto_dilithium::dilithium2::{
     detached_sign, keypair as dilithium_keypair, verify_detached_signature, DetachedSignature,
@@ -18,7 +15,6 @@ use pqcrypto_traits::sign::{
 };
 use rand::RngCore;
 use schnorrkel::Keypair as SchnorrkelKeypair;
-use std::collections::HashMap;
 
 pub const PUBLIC_KEY_SIZE: usize = 1312;
 pub const ADDRESS_SIZE: usize = 20;
