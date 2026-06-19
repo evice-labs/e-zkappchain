@@ -1,11 +1,9 @@
-# ====================================================================
-#                  EVICE-INTENT-ECOSYSTEM - VIRTUAL WORKSPACE
-# ====================================================================
 [workspace]
 resolver = "2"
 members = [
     "crates/common",
     "crates/engine",
+    "crates/ffi",
     "crates/sequencer-node",
     "crates/simulator",
     "crates/solver-service",
@@ -14,12 +12,8 @@ members = [
     "crates/zk-prover",
 ]
 
-# ====================================================================
-#                        DEPENDENSI BERSAMA
-# ====================================================================
 [workspace.dependencies]
-
-# --- INTERNAL CRATES ---
+# Internal Crates
 common = { path = "crates/common" }
 engine = { path = "crates/engine" }
 simulator = { path = "crates/simulator" }
@@ -27,25 +21,23 @@ sequencer = { path = "crates/sequencer-node" }
 zk-prover = { path = "crates/zk-prover" }
 zk-core = { path = "crates/zk-core" }
 
-# --- EXTERNAL LIBRARIES ---
 # Concurrency & Runtime
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1.13"
-rayon = "1.8"
-crossbeam = "0.8"
-parking_lot = "0.12"
-clap = { version = "4.5", features = ["derive", "env"] }
 rand = "0.9.2"       
-rand_core = "0.6"
-hdrhistogram = "7.5"
 dotenv = "0.15"
 chrono = "0.4.42"
 
 # Serialization & Utils
 serde = { version = "1.0", features = ["derive"] }
+serde_with = { version = "3.8.1", features = ["macros"] }
+serde_bytes = "0.11"
 serde_json = "1.0"
 slab = "0.4"
 anyhow = "1.0"
+bincode = { version = "2.0.1", features = ["serde"] }
+borsh = { version = "1.5.7", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 hex = "0.4"
 url = "2.5"
 thiserror = "2.0.16"
@@ -65,14 +57,20 @@ alloy-primitives = "1.5.2"
 revm = { version = "33.1.0", features = ["std", "secp256k1", "optional_balance_check"] }
 revm-primitives = { version = "21.0.2", features = ["std"] }
 
-# ==============================================================================
-#                        THE SETTLEMENT LAYER DEPENDENCIES
-# ==============================================================================
-serde_with = { version = "3.8.1", features = ["macros"] }
-serde_bytes = "0.11"
-bincode = { version = "2.0.1", features = ["serde"] }
+# Logging & Observability
+log = "0.4"
+tracing = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# RPC (gRPC)
+prost = "0.14.1"
+tonic = { version = "0.14.1", features = ["transport", "codegen", "tls-ring"] }
+tonic-build = "0.14.1"
+tonic-prost = "0.14.1"
+tonic-prost-build = "0.14.1"
+
 uuid = { version = "1.8", features = ["v4"] }
-borsh = { version = "1.5.7", features = ["derive"] }
 zstd = "0.13"
 tempfile = "3.10"
 flate2 = "1.0"
@@ -82,14 +80,11 @@ num_cpus = "1.17.0"
 num-bigint = "0.4.6"
 num-integer = "0.1.46"
 
-# --- Asinkronus & Jaringan ---
-actix-web = "4.11.0"
-actix-web-ratelimit = "0.1.1"
-tiny_http = "0.12.0"
+# Asinkronus & Jaringan
 async-recursion = "1.1.1"
 async-trait = "0.1"
 
-# --- Kriptografi & Keamanan ---
+# Kriptografi & Keamanan
 sha2 = "0.10.8"
 sha3 = "0.10.8"
 rpassword = "7.3.1"
@@ -110,60 +105,18 @@ cbc = "0.1.2"
 ecdsa = { version = "0.16.9" }
 signature = { version = "2.2.0" }
 zeroize = "1.8.1"
-
-# --- Logging & Observability ---
-log = "0.4"
-tracing = "0.1"
-tracing-log = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-env_logger = "0.11.3"
-lazy_static = "1.4.0"
-prometheus = "0.14"
-
-# --- Jaringan P2P (libp2p) ---
-libp2p = { version = "0.56.0", features = ["full"] }
-libp2p-request-response = { version = "0.29.0", features = ["cbor"] }
-
-# --- RPC (gRPC) ---
-rustls = { version = "0.23.5", default-features = false, features = ["ring"] }
-prost = "0.14.1"
-tonic = { version = "0.14.1", features = ["transport", "codegen", "tls-ring"] }
-tonic-build = "0.14.1"
-tonic-prost = "0.14.1"
-tonic-prost-build = "0.14.1"
-
-# --- Database & State (Trie) ---
-rocksdb = { version = "0.24.0", default-features = false, features = ["lz4", "bindgen-runtime"] }
-hash-db = "0.16.0"
-trie-db = "0.30.0"
-trie-root = "0.18.0"
-reference-trie = { version = "0.29.1", default-features = false, features = ["std"] }
-keccak-hasher = "0.16.0"
-memory-db = "0.34.0"
-merkle-cbt = "0.3.2"
-parity-db = "0.5.4"
-parity-scale-codec = { version = "3.6.12", features = ["derive"] }
-
-# --- ZK-SNARKs (arkworks) ---
 blst = { version = "0.3.15", default-features = false, features = ["serde"] }
+rand_core = "0.6.4"
+
+# ZK-SNARKs (arkworks)
 ark-bls12-381 = { version = "0.5", features = ["curve"] }
 ark-bls12-377 = { version = "0.5", features = ["curve"] }
-ark-groth16 = { version = "0.5", features = ["r1cs"] }
-ark-bw6-761 = "0.5"
-ark-mnt4-753 = "0.5"
-ark-snark = "0.5"
 ark-ff = { version = "0.5", features = ["std"] }
-ark-ec = "0.5"
 ark-r1cs-std = "0.5"
-ark-relations = "0.5"
 ark-serialize = "0.5"
 ark-std = { version = "0.5", features = ["parallel"] }
 ark-crypto-primitives = { version = "0.5", features = ["sponge", "r1cs", "merkle_tree"] }
 
-# --- WASM Runtime ---
-wasmer = { version = "6.0.1", features = ["compiler", "cranelift"] }
-wasmparser = "0.240.0"
-wasmer-middlewares = "6.0.1"
-wasmer-engine-universal = "2.3.0"
-
-        
+# Jaringan P2P (libp2p)
+libp2p = { version = "0.56.0", features = ["full", "rsa"] }
+libp2p-request-response = { version = "0.29.0", features = ["cbor"] }
