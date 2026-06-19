@@ -1,0 +1,40 @@
+language = "C"
+header = """
+/**
+ * Evice Intent-Centric Engine — FFI Bindings
+ *
+ * C-compatible interface for the Evice matching engine, OFA auction system,
+ * and intent processing pipeline.
+ *
+ * Thread Safety: All functions are thread-safe. The engine handle uses
+ * internal locking to ensure safe concurrent access.
+ *
+ * Memory Management:
+ * - Functions returning `char*` allocate memory that MUST be freed
+ *   with `evice_free_string()`
+ * - Never free memory returned by FFI using standard C `free()`
+ *
+ * Initialization:
+ * 1. Call `evice_engine_create()` to create an engine instance
+ * 2. Use trading/intent functions to interact with the engine
+ * 3. Call `evice_engine_destroy()` when done
+ *
+ * All JSON parameters and return values use UTF-8 encoded strings.
+ */
+"""
+
+include_guard = "EVICE_FFI_H"
+include_version = true
+no_includes = false
+
+[export]
+include = ["EviceFfiError", "EviceEngineHandle"]
+
+[enum]
+rename_variants = "ScreamingSnakeCase"
+
+[fn]
+rename_args = "None"
+
+[struct]
+rename_fields = "None"

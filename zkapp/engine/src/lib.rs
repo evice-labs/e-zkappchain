@@ -7,10 +7,9 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 pub mod processor;
 pub mod wal;
 
-// --- Data Structures (Optimize for Cache Locality & Copy) ---
 pub type OrderId = u64;
 pub type UserId = u64;
-pub type Price = u64; // Menggunakan atomic units (misal: satoshi) untuk menghindari Floating Point errors
+pub type Price = u64;
 pub type Quantity = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,13 +83,8 @@ pub enum LogEntry {
     },
 }
 
-// --- The Matching Engine (Core Logic) ---
 pub struct OrderBook {
-    // Penyimpanan data order sebenarnya. Menggunakan Slab untuk akses O(1) dan reuse memory slot
-    // Ini lebih efisien daripada Box::new() setiap kali order baru masuk
     order_store: Slab<Order>,
-
-    // Indeks Harga -> Antrian Order ID
     bids: BTreeMap<Price, VecDeque<usize>>,
     asks: BTreeMap<Price, VecDeque<usize>>,
     order_index: HashMap<OrderId, usize>,
@@ -101,7 +95,7 @@ pub struct OrderBook {
 impl OrderBook {
     pub fn new() -> Self {
         Self {
-            order_store: Slab::with_capacity(10_000), // Pre-allocate memory
+            order_store: Slab::with_capacity(10_000),
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
             order_index: HashMap::new(),
@@ -121,28 +115,22 @@ impl OrderBook {
     ) -> Vec<EngineEvent> {
         let mut events = Vec::new();
 
-        // 1. Matching Process (Taker Phase)
-        // Mencoba mencocokkan order yang masuk dengan order yang ada di buku
+        // Matching Process (Taker Phase)
         loop {
             if quantity == 0 {
                 break;
             }
 
-            // Cari order lawan terbaik (Best Bid or Best Ask)
             let best_match_option = match side {
                 Side::Bid => self.asks.iter_mut().next(),
                 Side::Ask => self.bids.iter_mut().next_back(),
             };
 
-            // Jika tidak ada liquidity, stop matching
             let (best_price, order_queue) = match best_match_option {
                 Some((p, q)) => (*p, q),
                 None => break,
             };
 
-            // Cek apakah harga memenuhi syarat
-            // Bid: beli jika harga lawan <= harga limit saya
-            // Ask: jual jika harga lawan >= harga limit saya
             let is_matchable = match side {
                 Side::Bid => best_price <= price,
                 Side::Ask => best_price >= price,
@@ -152,33 +140,21 @@ impl OrderBook {
                 break;
             }
 
-            // Proses queue pada harga terbaik
             while let Some(&maker_idx) = order_queue.front() {
-                // Ambil referensi mutable ke maker order
                 let maker_order = self
                     .order_store
                     .get_mut(maker_idx)
                     .expect("Stale index in queue");
 
-                // Self-Trade Prevention
                 if maker_order.user_id == user_id {
-                    // Cancel Maker (Resting Order dibuang)
-                    // Agar loop tidak macet, sebaiknya harus pop order ini.
                     order_queue.pop_front();
-
                     events.push(EngineEvent::OrderCancelled { id: maker_order.id });
-
-                    // Hapus dari Slab
                     self.order_store.remove(maker_idx);
-
-                    // Lanjut ke order berikutnya di antrian yang sama
                     continue;
                 }
 
-                // Hitung jumlah yang bisa di-trade
                 let trade_qty = std::cmp::min(quantity, maker_order.quantity);
 
-                // Emit Trade Event
                 events.push(EngineEvent::TradeExecuted {
                     maker_id: maker_order.id,
                     taker_id: order_id,
@@ -186,11 +162,9 @@ impl OrderBook {
                     quantity: trade_qty,
                 });
 
-                // Update quantity
                 quantity -= trade_qty;
                 maker_order.quantity -= trade_qty;
 
-                // Jika maker order habis, hapus dari buku
                 if maker_order.quantity == 0 {
                     order_queue.pop_front();
                     self.order_store.remove(maker_idx);
@@ -201,7 +175,6 @@ impl OrderBook {
                 }
             }
 
-            // Bersihkan entry harga jika queue kosong
             if order_queue.is_empty() {
                 match side {
                     Side::Bid => {
@@ -214,7 +187,7 @@ impl OrderBook {
             }
         }
 
-        // 2. Placement Process (Maker Phase)
+        // Placement Process (Maker Phase)
         if quantity > 0 {
             let new_order = Order {
                 id: order_id,
@@ -225,13 +198,10 @@ impl OrderBook {
                 timestamp: 0,
             };
 
-            // Simpan ke Slab
             let idx = self.order_store.insert(new_order.clone());
 
-            // Simpan mapping ID eksternal ke Internal Index
             self.order_index.insert(order_id, idx);
 
-            // Masukkan index ke queue yang sesuai
             let queue = match side {
                 Side::Bid => self.bids.entry(price).or_insert_with(VecDeque::new),
                 Side::Ask => self.asks.entry(price).or_insert_with(VecDeque::new),
@@ -253,14 +223,12 @@ impl OrderBook {
     pub fn cancel_order(&mut self, order_id: OrderId, user_id: UserId) -> Vec<EngineEvent> {
         let mut events = Vec::new();
 
-        // 1. Cek apakah order ada di index
         if let Some(&internal_idx) = self.order_index.get(&order_id) {
-            // 2. Ambil referensi order untuk validasi
+            // Ambil referensi order untuk validasi
             // Gunakan get dulu, jangan remove, karena perlu cek user_id
             if let Some(order) = self.order_store.get(internal_idx) {
-                // 3. Security Check: Apakah ini order milik user yang request?
+                // Security Check: Apakah ini order milik user yang request?
                 if order.user_id != user_id {
-                    // Unauthorized cancel attempt
                     return events;
                 }
 
@@ -268,8 +236,6 @@ impl OrderBook {
                 let side = order.side;
                 let _remaining_qty = order.quantity;
 
-                // 4. Hapus dari Queue (Agak tricky karena VecDeque)
-                // Mencari index di dalam queue harga tersebut
                 let queue = match side {
                     Side::Bid => self.bids.get_mut(&price),
                     Side::Ask => self.asks.get_mut(&price),
@@ -294,13 +260,8 @@ impl OrderBook {
                     }
                 }
 
-                // 5. Hapus dari Index Mapping
                 self.order_index.remove(&order_id);
-
-                // 6. Hapus dari Memory Slab
                 self.order_store.remove(internal_idx);
-
-                // 7. Emit Event Success
                 events.push(EngineEvent::OrderCancelled { id: order_id });
             }
         }
@@ -309,13 +270,12 @@ impl OrderBook {
     }
 
     pub fn get_depth(&self, limit: usize) -> (Vec<OrderLevel>, Vec<OrderLevel>) {
-        // 1. Ambil Asks (Jual) - Urut dari termurah (Ascending)
+        // Ambil Asks (Jual) - Urut dari termurah (Ascending)
         let asks: Vec<OrderLevel> = self
             .asks
             .iter()
             .take(limit)
             .map(|(&price, queue)| {
-                // Sum quantity dari semua order di harga ini
                 let total_qty: u64 = queue
                     .iter()
                     .map(|&idx| self.order_store.get(idx).map(|o| o.quantity).unwrap_or(0))
@@ -327,11 +287,11 @@ impl OrderBook {
             })
             .collect();
 
-        // 2. Ambil Bids (Beli) - Urut dari termahal (Descending/Reverse)
+        // Ambil Bids (Beli) - Urut dari termahal (Descending/Reverse)
         let bids: Vec<OrderLevel> = self
             .bids
             .iter()
-            .rev() // Penting: Bids harus dari harga tertinggi
+            .rev()
             .take(limit)
             .map(|(&price, queue)| {
                 let total_qty: u64 = queue

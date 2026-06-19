@@ -143,7 +143,6 @@ impl BorshDeserialize for WithdrawalProof {
     }
 }
 
-// Helper sementara untuk kompilasi, karena tidak bisa memindahkan serde_helpers ke `no_std` dengan mudah
 mod serde_helpers_placeholder {
     use super::*;
     use serde::{de::Error, Deserializer, Serializer};

@@ -39,8 +39,9 @@ use sequencer_core::{
     genesis::{Genesis, GenesisAccount},
     keystore::Keystore,
     p2p::{self, P2pCommand, SyncResponse},
-    ChainMessage,
+    AppPayload, ChainMessage,
 };
+use common::transaction::{Transaction, TransactionData};
 use tokio::{
     select,
     sync::{broadcast, mpsc, oneshot, Mutex, RwLock},
@@ -318,7 +319,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             );
         }
 
-        let (tx_gossip, _rx_gossip) = mpsc::channel::<ChainMessage>(100);
+        let (tx_gossip, mut rx_gossip) = mpsc::channel::<ChainMessage>(100);
         let (p2p_cmd_tx, p2p_cmd_rx) = mpsc::channel::<P2pCommand>(100);
         let (consensus_msg_tx, consensus_msg_rx) = mpsc::channel::<ConsensusMsgTuple>(100);
 
@@ -476,6 +477,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         engine_clone.submit_zk_batch(batch).await;
                     }
                     _ => { /* Abaikan event lain seperti OrderPlaced */ }
+                }
+            }
+        });
+
+        let processor_sender_for_consensus = tx.clone();
+        tokio::spawn(async move {
+            info!("Consensus-to-Engine Bridge started...");
+            while let Some(msg) = rx_gossip.recv().await {
+                match msg {
+                    ChainMessage::NewPayload(payload) => {
+                        // Jembatan: Deserialize AppPayload -> Transaction
+                        if let Ok(tx) = borsh::from_slice::<Transaction>(&payload.0) {
+                            info!("Berhasil me-deserialize AppPayload menjadi Transaction dari: 0x{}", hex::encode(tx.sender().as_ref()));
+                            
+                            // Di sini nantinya tempat memetakan TransactionData ke engine::processor::Command
+                            // Contoh sederhana:
+                            match tx.data {
+                                TransactionData::CallContract { call_data, .. } => {
+                                    info!("Menerima CallContract payload dengan panjang data: {} bytes", call_data.len());
+                                    // ... parse call_data menjadi Order ...
+                                    // let (resp_tx, _resp_rx) = oneshot::channel();
+                                    // processor_sender_for_consensus.send(Command::PlaceOrder { ... responder: resp_tx }).await;
+                                }
+                                _ => {
+                                    info!("Tipe transaksi L1 diabaikan oleh DEX Engine.");
+                                }
+                            }
+                        } else {
+                            warn!("Gagal me-deserialize AppPayload menjadi Transaction.");
+                        }
+                    }
+                    _ => {}
                 }
             }
         });

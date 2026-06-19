@@ -1,0 +1,19 @@
+[package]
+name = "evice-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "C-compatible FFI bindings for the Evice Intent-Centric Engine"
+license = "BSL-1.1"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+engine = { path = "../engine" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+cbindgen = "0.29"

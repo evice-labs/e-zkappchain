@@ -4,11 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-common = { workspace = true }
-engine = { workspace = true }
-zk-prover = { workspace = true }
-zk-core = { workspace = true }
-
 prost = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }

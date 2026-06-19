@@ -24,18 +24,11 @@ impl WalHandler {
         })
     }
 
-    // Menulis satu entry ke disk
     pub fn write_entry(&mut self, entry: &LogEntry) -> Result<()> {
-        // Serialize langsung ke buffer writer
         bincode::serde::encode_into_std_write(entry, &mut self.writer, config::standard())?;
-
-        // Untuk HFT murni, biasanya flush dilakukan per batch atau interval waktu
-        // Pada skala seperti ini, flush setiap kali demi keamanan data
         self.writer.flush()?;
         Ok(())
     }
-
-    // Membaca ulang semua entry saat startup (Recovery)
     pub fn read_all(path: &str) -> Result<Vec<LogEntry>> {
         let file = OpenOptions::new().read(true).open(path);
 

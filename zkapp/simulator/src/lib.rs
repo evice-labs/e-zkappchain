@@ -169,7 +169,6 @@ impl EvmSimulator {
                     total_gas += gas_used;
                     println!("TX #{} SUCCESS. Gas: {}", i, gas_used);
 
-                    // TANGKAP ALAMAT KONTRAK
                     if let Output::Create(bytes, addr) = output {
                         if let Some(a) = addr {
                             println!("DEPLOYMENT DETECTED! Created Address: {:?}", a);
@@ -178,7 +177,6 @@ impl EvmSimulator {
                         }
                     }
 
-                    // CEK KHUSUS: Apakah kita memanggil alamat kosong?
                     if let TxKind::Call(to_addr) = kind {
                         if let Ok(acc) = self.db.load_account(to_addr) {
                             let has_code = acc
@@ -189,10 +187,7 @@ impl EvmSimulator {
                                 .unwrap_or(false);
                             if !has_code {
                                 if i > 0 {
-                                    println!(
-                                        "Warning: Memanggil alamat {:?} tanpa kode.",
-                                        to_addr
-                                    );
+                                    println!("Warning: Memanggil alamat {:?} tanpa kode.", to_addr);
                                 }
                             }
                         }
@@ -230,14 +225,12 @@ impl EvmSimulator {
         })
     }
 
-    // Fungsi untuk membaca state kontrak (view/pure) dan mengembalikan output + estimasi gas
     pub fn simulate_view_call(
         &mut self,
         caller: Address,
         to: Address,
         calldata: Bytes,
     ) -> Result<(Bytes, u64)> {
-        // Buat TxEnv tanpa perlu memikirkan nonce atau value
         let mut tx = TxEnv::default();
         tx.caller = caller;
         tx.kind = TxKind::Call(to);

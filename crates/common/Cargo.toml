@@ -1,9 +1,0 @@
-[package]
-name = "common"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-alloy = { workspace = true }
-alloy-primitives = { workspace = true }
-serde = { workspace = true }

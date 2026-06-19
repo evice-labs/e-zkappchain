@@ -3,6 +3,8 @@
 use alloy_primitives::{Address, Bytes, U256};
 use serde::{Deserialize, Serialize};
 
+pub mod transaction;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleTx {
     pub signer: Address,

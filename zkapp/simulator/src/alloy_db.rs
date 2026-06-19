@@ -11,7 +11,6 @@ use std::sync::Arc;
 use tokio::runtime::Handle;
 use url::Url;
 
-// --- Custom Error ---
 #[derive(Debug)]
 pub struct AlloyDBError(String);
 
@@ -31,7 +30,6 @@ impl From<anyhow::Error> for AlloyDBError {
     }
 }
 
-// Definisi Tipe Provider (hanya Network, tanpa Transport explicit)
 type AlloyProvider = RootProvider<Ethereum>;
 
 #[derive(Clone)]
@@ -41,7 +39,6 @@ pub struct AlloyDB {
 
 impl AlloyDB {
     pub fn new(rpc_url: Url) -> Self {
-        // Menggunakan new_http untuk inisialisasi provider HTTP standar
         let provider = RootProvider::<Ethereum>::new_http(rpc_url);
 
         Self {
@@ -95,11 +92,9 @@ impl DatabaseRef for AlloyDB {
         let f = async {
             // Ambil value, jika error convert ke anyhow::Error via '?'
             let value = self.provider.get_storage_at(address, index).await?;
-            // Bungkus sukses sebagai Result<U256, anyhow::Error>
             Ok::<U256, anyhow::Error>(value)
         };
 
-        // Sekarang tipe error cocok dengan implementasi From<anyhow::Error>
         let value = self.block_on(f)?;
         Ok(value)
     }

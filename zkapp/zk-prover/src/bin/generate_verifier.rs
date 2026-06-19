@@ -8,40 +8,40 @@ use zk_prover::IntentRollupAir;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Memulai kompilasi ZK Circuit (IntentRollupAir) ke Solidity...");
 
-    // 1. Inisialisasi Sirkuit
+    // Inisialisasi Sirkuit
     let _air = IntentRollupAir;
 
-    // Di ekosistem Plonky3 seutuhnya, di sinilah kita akan mendefinisikan 
-    // Field (seperti BabyBear atau Goldilocks), Hash (Poseidon/Keccak), 
-    // dan konfigurasi parameter STARK FRI.
+    // Di ekosistem Plonky3 seutuhnya, di sini tempat untuk mendefinisikan
+    // Field (seperti BabyBear atau Goldilocks), Hash (Poseidon/Keccak),
+    // dan konfigurasi parameter STARK FRI
 
     println!("Konfigurasi Plonky3 FRI STARK berhasil dimuat.");
     println!("Mengekstrak gerbang logika (logic gates) dan lookup tables...");
 
-    // 2. Generate Bytecode Solidity
+    // Generate Bytecode Solidity
     // Fungsi ini mensimulasikan output dari toolchain Plonky3 / Succinct
     let solidity_code = generate_solidity_verifier();
 
-    // 3. Tentukan rute penyimpanan 
     let out_dir = "../../l1-contracts/src";
     let file_path = Path::new(out_dir).join("EviceVerifier.sol");
 
-    // Jika direktori belum ada, buat secara otomatis
     if let Some(parent) = file_path.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    // 4. Tulis file Solidity
     let mut file = fs::File::create(&file_path)?;
     file.write_all(solidity_code.as_bytes())?;
 
-    println!("BERHASIL! File verifier dicetak di: {:?}", file_path.display());
+    println!(
+        "BERHASIL! File verifier dicetak di: {:?}",
+        file_path.display()
+    );
 
     Ok(())
 }
 
-// Mensimulasikan pembuatan template IPlonky3Verifier yang sesuai dengan 
-// interface kontrak EviceRollup.sol.
+// Mensimulasikan pembuatan template IPlonky3Verifier yang sesuai dengan
+// interface kontrak EviceRollup.sol
 fn generate_solidity_verifier() -> String {
     r#"// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
@@ -78,5 +78,6 @@ contract EviceVerifier is IPlonky3Verifier {
         return true;
     }
 }
-"#.to_string()
+"#
+    .to_string()
 }
