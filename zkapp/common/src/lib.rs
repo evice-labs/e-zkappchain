@@ -17,7 +17,7 @@ pub struct BundleTx {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MevBundle {
-    pub block_number: u64,
+    pub batch_number: u64,
     pub txs: Vec<BundleTx>,
     pub timestamp: u64,
 }

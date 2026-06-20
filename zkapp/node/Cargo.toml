@@ -13,6 +13,8 @@ zk-core = { workspace = true }
 axum = { workspace = true }
 alloy = { workspace = true }
 alloy-primitives = { workspace = true }
+borsh = { workspace = true }
+blst = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tokio = { workspace = true }
@@ -32,7 +34,6 @@ schnorrkel = { workspace = true }
 prost = { workspace = true }
 clap = { workspace = true }
 url = { workspace = true }
-blst = { workspace = true }
 hex = { workspace = true }
 
 [build-dependencies]

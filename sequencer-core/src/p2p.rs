@@ -24,10 +24,10 @@ use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio::time::interval;
 
 use crate::consensus::{
-    ConsensusMessage, ConsensusState, OptimisticConfirmation, PendingBlock,
+    ConsensusMessage, ConsensusState, OptimisticConfirmation, PendingBatch,
     VelocityVote,
 };
-use crate::{Address, Block, ChainMessage, AppPayload};
+use crate::{Address, PayloadBatch, ChainMessage, AppPayload};
 
 const INITIAL_PEER_SCORE: i32 = 0;
 const MAX_PEER_SCORE: i32 = 100;
@@ -123,7 +123,7 @@ pub enum SyncResponse {
     Peers(Vec<String>),
 
     ConsensusResponse(Option<Box<ConsensusMessage>>),
-    FullProposal(Option<Box<PendingBlock>>),
+    FullProposal(Option<Box<PendingBatch>>),
     FullProposalReceivedAck,
     VoteAck,
     PeersReceivedAck,
@@ -273,8 +273,7 @@ pub async fn run(
             )
             .unwrap();
 
-            let kademlia =
-                kad::Behaviour::new(local_peer_id, kad::store::MemoryStore::new(local_peer_id));
+            let kademlia = kad::Behaviour::new(local_peer_id, kad::store::MemoryStore::new(local_peer_id));
             let identify = identify::Behaviour::new(identify::Config::new(
                 "/evice-blockchain/1.0.0".to_string(),
                 key.public(),
@@ -382,7 +381,7 @@ pub async fn run(
                     P2pCommand::SendDirectRequest { destination, request } => {
                         match &request {
                             SyncRequest::SubmitVote(vote) => {
-                                debug!("[P2P DIRECT] Mengirim suara untuk blok 0x{} ke peer {}", hex::encode(&vote.block_hash[..4]), destination);
+                                debug!("[P2P DIRECT] Mengirim suara untuk batch 0x{} ke peer {}", hex::encode(&vote.batch_hash[..4]), destination);
                             }
                             _ => {}
                         }
@@ -516,36 +515,36 @@ pub async fn run(
                                 let p2p_cmd_tx_clone = p2p_cmd_tx.clone();
 
                                 tokio::spawn(async move {
-                                    let mut found_block: Option<PendingBlock> = None;
+                                    let mut found_batch: Option<PendingBatch> = None;
 
-                                    if found_block.is_none() {
+                                    if found_batch.is_none() {
                                         if let Some(cs) = consensus_state_clone {
-                                            if let Some(pending_block) = cs.read().await.pending_proposals.read().await.get(&hash) {
-                                                info!("[P2P FALLBACK] Menemukan blok 0x{} di `pending_proposals` untuk peer {}.", hex::encode(&hash[..4]), peer_id);
-                                                found_block = Some(pending_block.clone());
-                                            } else if let Some(block) = cs.read().await.core_state.read().await.optimistically_confirmed_blocks.iter().find(|b| b.header.calculate_hash() == hash) {
-                                                info!("[P2P FALLBACK] Menemukan blok 0x{} di `optimistically_confirmed_blocks` untuk peer {}.", hex::encode(&hash[..4]), peer_id);
-                                                found_block = Some(PendingBlock {
-                                                    header: block.header.clone(),
-                                                    payloads: block.payloads.clone(),
-                                                    parent_qc: block.justify.clone(),
-                                                    round: block.round,
+                                            if let Some(pending_batch) = cs.read().await.pending_proposals.read().await.get(&hash) {
+                                                info!("[P2P FALLBACK] Menemukan batch 0x{} di `pending_proposals` untuk peer {}.", hex::encode(&hash[..4]), peer_id);
+                                                found_batch = Some(pending_batch.clone());
+                                            } else if let Some(batch) = cs.read().await.core_state.read().await.optimistically_confirmed_batches.iter().find(|b| b.header.calculate_hash() == hash) {
+                                                info!("[P2P FALLBACK] Menemukan batch 0x{} di `optimistically_confirmed_batches` untuk peer {}.", hex::encode(&hash[..4]), peer_id);
+                                                found_batch = Some(PendingBatch {
+                                                    header: batch.header.clone(),
+                                                    payloads: batch.payloads.clone(),
+                                                    parent_qc: batch.justify.clone(),
+                                                    round: batch.round,
                                                 });
                                             }
                                         }
                                     }
 
-                                    if let Some(block) = found_block {
+                                    if let Some(batch) = found_batch {
                                         let confirmation = OptimisticConfirmation {
-                                            header: block.header.clone(),
-                                            payload_hashes: block.payloads.iter().map(|p| p.message_hash()).collect(),
-                                            parent_qc: block.parent_qc.clone(),
-                                            round: block.round,
+                                            header: batch.header.clone(),
+                                            payload_hashes: batch.payloads.iter().map(|p| p.message_hash()).collect(),
+                                            parent_qc: batch.parent_qc.clone(),
+                                            round: batch.round,
                                         };
 
                                         let full_proposal_response = SyncRequest::FullProposalForCommittee {
                                             confirmation: Box::new(confirmation),
-                                            payloads: block.payloads,
+                                            payloads: batch.payloads,
                                         };
 
                                         let cmd = P2pCommand::SendDirectRequest {
@@ -554,12 +553,12 @@ pub async fn run(
                                         };
 
                                         if p2p_cmd_tx_clone.send(cmd).await.is_err() {
-                                            error!("[P2P FALLBACK] Gagal mengirim respons blok penuh ke peer {}.", peer_id);
+                                            error!("[P2P FALLBACK] Gagal mengirim respons batch penuh ke peer {}.", peer_id);
                                         } else {
-                                            info!("[P2P FALLBACK] Berhasil mengirim blok penuh 0x{} langsung ke peer {}.", hex::encode(&hash[..4]), peer_id);
+                                            info!("[P2P FALLBACK] Berhasil mengirim batch penuh 0x{} langsung ke peer {}.", hex::encode(&hash[..4]), peer_id);
                                         }
                                     } else {
-                                        debug!("[P2P FALLBACK] Tidak dapat menemukan blok 0x{} yang diminta oleh {}.", hex::encode(&hash[..4]), peer_id);
+                                        debug!("[P2P FALLBACK] Tidak dapat menemukan batch 0x{} yang diminta oleh {}.", hex::encode(&hash[..4]), peer_id);
                                     }
                                 });
                             }
@@ -581,8 +580,8 @@ pub async fn run(
 
                             let penalty = match borsh::from_slice::<ChainMessage>(&message.data) {
                                 Ok(chain_message) => match chain_message {
-                                    ChainMessage::NewConsensusMessage(ConsensusMessage::IntentBatchProposal(ref block)) => {
-                                        if p2p_to_consensus_tx_clone.send((ConsensusMessage::IntentBatchProposal(block.clone()), peer_id, None)).await.is_err() {
+                                    ChainMessage::NewConsensusMessage(ConsensusMessage::IntentBatchProposal(ref batch)) => {
+                                        if p2p_to_consensus_tx_clone.send((ConsensusMessage::IntentBatchProposal(batch.clone()), peer_id, None)).await.is_err() {
                                             error!("P2P (Task): Gagal mengirim proposal valid ke Aegis Engine.");
                                         }
                                         0
@@ -618,11 +617,11 @@ pub async fn run(
                             request_response::Message::Request { request, channel, .. } => {
                                 match &request {
                                     SyncRequest::SubmitVote(vote) => {
-                                        debug!("[SYNC] Menerima suara untuk blok 0x{} dari peer {}", hex::encode(&vote.block_hash[..4]), peer);
+                                        debug!("[SYNC] Menerima suara untuk batch 0x{} dari peer {}", hex::encode(&vote.batch_hash[..4]), peer);
                                     }
                                     SyncRequest::FullProposalForCommittee { confirmation, payloads } => {
                                         info!(
-                                            "[SYNC] Menerima proposal lengkap untuk blok #{} ({} payloads) dari peer {}",
+                                            "[SYNC] Menerima proposal lengkap untuk batch #{} ({} payloads) dari peer {}",
                                             confirmation.header.index,
                                             payloads.len(),
                                             peer
@@ -663,22 +662,22 @@ pub async fn run(
                                                 error!("[P2P] Gagal mengirim respons ACK konsensus ke channel internal.");
                                             }
                                         }
-                                        SyncRequest::GetFullProposal(block_hash) => {
-                                            let mut found_block: Option<PendingBlock> = None;
+                                        SyncRequest::GetFullProposal(batch_hash) => {
+                                            let mut found_batch: Option<PendingBatch> = None;
 
                                             // 1. Cek di cache
-                                            if found_block.is_none() {
+                                            if found_batch.is_none() {
                                                 if let Some(cs) = consensus_state_clone {
                                                     let consensus_state_guard = cs.read().await;
                                                     let pending_proposals_guard = consensus_state_guard.pending_proposals.read().await;
-                                                    if let Some(pending) = pending_proposals_guard.get(&block_hash) {
-                                                        info!("[P2P SYNC] Menemukan blok 0x{} di `pending_proposals`.", hex::encode(&block_hash[..4]));
-                                                        found_block = Some(pending.clone());
+                                                    if let Some(pending) = pending_proposals_guard.get(&batch_hash) {
+                                                        info!("[P2P SYNC] Menemukan batch 0x{} di `pending_proposals`.", hex::encode(&batch_hash[..4]));
+                                                        found_batch = Some(pending.clone());
                                                     } else {
                                                         let core_state_guard = consensus_state_guard.core_state.read().await;
-                                                        if let Some(optimistic) = core_state_guard.optimistically_confirmed_blocks.iter().find(|b| b.header.calculate_hash() == block_hash) {
-                                                            info!("[P2P SYNC] Menemukan blok 0x{} di `optimistically_confirmed_blocks`.", hex::encode(&block_hash[..4]));
-                                                            found_block = Some(PendingBlock {
+                                                        if let Some(optimistic) = core_state_guard.optimistically_confirmed_batches.iter().find(|b| b.header.calculate_hash() == batch_hash) {
+                                                            info!("[P2P SYNC] Menemukan batch 0x{} di `optimistically_confirmed_batches`.", hex::encode(&batch_hash[..4]));
+                                                            found_batch = Some(PendingBatch {
                                                                 header: optimistic.header.clone(),
                                                                 payloads: optimistic.payloads.clone(),
                                                                 parent_qc: optimistic.justify.clone(),
@@ -689,12 +688,10 @@ pub async fn run(
                                                 }
                                             }
 
-
-
-                                            let response = if let Some(block) = found_block {
-                                                SyncResponse::FullProposal(Some(Box::new(block)))
+                                            let response = if let Some(batch) = found_batch {
+                                                SyncResponse::FullProposal(Some(Box::new(batch)))
                                             } else {
-                                                warn!("[P2P SYNC] Gagal menemukan proposal 0x{} untuk peer {}.", hex::encode(&block_hash[..4]), peer);
+                                                warn!("[P2P SYNC] Gagal menemukan proposal 0x{} untuk peer {}.", hex::encode(&batch_hash[..4]), peer);
                                                 SyncResponse::FullProposal(None)
                                             };
 
@@ -704,7 +701,7 @@ pub async fn run(
                                             }
                                         }
                                         SyncRequest::FullProposalForCommittee { confirmation, payloads } => {
-                                            let block_proposal = Block {
+                                            let batch_proposal = PayloadBatch {
                                                 header: confirmation.header.clone(),
                                                 payloads: payloads.clone(),
                                                 round: confirmation.round,
@@ -712,7 +709,7 @@ pub async fn run(
                                             };
 
                                             let msg_tuple = (
-                                                ConsensusMessage::IntentBatchProposal(Box::new(block_proposal)),
+                                                ConsensusMessage::IntentBatchProposal(Box::new(batch_proposal)),
                                                 peer,
                                                 None
                                             );
@@ -765,17 +762,17 @@ pub async fn run(
                                     SyncResponse::ConsensusResponse(None) => {
                                         debug!("[P2P DIRECT] Menerima ack konsensus dari peer {}", peer);
                                     }
-                                    SyncResponse::FullProposal(Some(pending_block)) => {
-                                        info!("[SYNC] Menerima proposal lengkap untuk blok 0x{} dari peer {}", hex::encode(&pending_block.header.calculate_hash()[..4]), peer);
-                                        let block_proposal = Block {
-                                            header: pending_block.header.clone(),
-                                            payloads: pending_block.payloads.clone(),
-                                            round: pending_block.round,
-                                            justify: pending_block.parent_qc.clone(),
+                                    SyncResponse::FullProposal(Some(pending_batch)) => {
+                                        info!("[SYNC] Menerima proposal lengkap untuk batch 0x{} dari peer {}", hex::encode(&pending_batch.header.calculate_hash()[..4]), peer);
+                                        let batch_proposal = PayloadBatch {
+                                            header: pending_batch.header.clone(),
+                                            payloads: pending_batch.payloads.clone(),
+                                            round: pending_batch.round,
+                                            justify: pending_batch.parent_qc.clone(),
                                         };
 
                                         let msg_tuple = (
-                                            ConsensusMessage::IntentBatchProposal(Box::new(block_proposal)),
+                                            ConsensusMessage::IntentBatchProposal(Box::new(batch_proposal)),
                                             peer,
                                             None
                                         );

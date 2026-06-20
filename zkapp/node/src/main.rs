@@ -39,7 +39,7 @@ use sequencer_core::{
     genesis::{Genesis, GenesisAccount},
     keystore::Keystore,
     p2p::{self, P2pCommand, SyncResponse},
-    AppPayload, ChainMessage,
+    ChainMessage,
 };
 use common::transaction::{Transaction, TransactionData};
 use tokio::{
@@ -85,6 +85,10 @@ struct Args {
     db_path: String,
     #[clap(long, default_value = "9000")]
     metrics_port: u16,
+    #[clap(long, default_value = "3000")]
+    ws_port: u16,
+    #[clap(long, default_value = "50051")]
+    rpc_port: u16,
     #[clap(long)]
     is_authority: bool,
     #[clap(long)]
@@ -330,13 +334,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         if let Some(ref keys) = authority_validator_keys {
             let my_address = public_key_to_address(&keys.signing_keys.public_key_bytes());
-            let (initial_qc, initial_block_hash) = {
+            let (initial_qc, initial_batch_hash) = {
                 let genesis_qc = QuorumCertificate::genesis_qc();
                 let genesis_hash = vec![0u8; 32];
                 (genesis_qc, genesis_hash)
             };
 
-            let state_struct = ConsensusState::new(initial_qc, initial_block_hash);
+            let state_struct = ConsensusState::new(initial_qc, initial_batch_hash);
             consensus_state = Some(Arc::new(RwLock::new(state_struct.clone())));
 
             let engine = ConsensusEngine {
@@ -481,7 +485,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         });
 
-        let processor_sender_for_consensus = tx.clone();
+        let _processor_sender_for_consensus = tx.clone();
         tokio::spawn(async move {
             info!("Consensus-to-Engine Bridge started...");
             while let Some(msg) = rx_gossip.recv().await {
@@ -517,15 +521,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .route("/ws", axum::routing::get(ws_handler))
             .with_state(broadcast_tx);
 
-        let ws_addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
-        info!(">>> WebSocket Market Data Server Listening on ws://127.0.0.1:3000/ws");
+        let ws_addr = std::net::SocketAddr::from(([127, 0, 0, 1], args.ws_port));
+        info!(">>> WebSocket Market Data Server Listening on ws://127.0.0.1:{}/ws", args.ws_port);
 
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(ws_addr).await.unwrap();
             axum::serve(listener, app).await.unwrap();
         });
 
-        let addr = "[::1]:50051".parse()?;
+        let addr = format!("[::1]:{}", args.rpc_port).parse()?;
         let trading_service = TradingService {
             processor_sender: tx,
         };

@@ -22,7 +22,7 @@ use rand::seq::SliceRandom;
 use crate::{
     crypto::{self, KeyPair, ValidatorKeys},
     p2p::{AddressBook, P2pCommand, SyncRequest, SyncResponse},
-    Address, Block, BlockHeader, ChainMessage, Signature, AppPayload,
+    Address, PayloadBatch, BatchHeader, ChainMessage, Signature, AppPayload,
 };
 
 pub type ConsensusMsgTuple = (ConsensusMessage, PeerId, Option<oneshot::Sender<SyncResponse>>);
@@ -33,7 +33,7 @@ const AEGIS_SUB_COMMITTEE_SIZE: usize = 4;
 #[derive(Clone)]
 pub struct ConsensusState {
     pub core_state: Arc<RwLock<CoreConsensusState>>,
-    pub pending_proposals: Arc<RwLock<HashMap<Vec<u8>, PendingBlock>>>,
+    pub pending_proposals: Arc<RwLock<HashMap<Vec<u8>, PendingBatch>>>,
     pub proposal_queues: Arc<RwLock<ProposalQueues>>,
     pub recently_processed_hashes: Arc<RwLock<LruCache<[u8; 32], ()>>>,
 }
@@ -44,8 +44,8 @@ pub struct CoreConsensusState {
     pub step_start_time: Instant,
     pub highest_seen_qc: QuorumCertificate,
     pub velocity_votes: HashMap<Vec<u8>, Vec<VelocityVote>>,
-    pub processed_optimistic_blocks: HashSet<Vec<u8>>,
-    pub optimistically_confirmed_blocks: Vec<Block>,
+    pub processed_optimistic_batches: HashSet<Vec<u8>>,
+    pub optimistically_confirmed_batches: Vec<PayloadBatch>,
 }
 
 pub struct ProposalQueues {
@@ -56,11 +56,11 @@ pub struct ProposalQueues {
     pub premature_proposals:
         HashMap<u64, Vec<ConsensusMsgTuple>>,
     pub stale_qc_request: HashMap<Vec<u8>, (u64, Instant)>,
-    pub pending_qc_waiting_for_block: HashMap<Vec<u8>, Vec<(QuorumCertificate, PeerId)>>,
+    pub pending_qc_waiting_for_batch: HashMap<Vec<u8>, Vec<(QuorumCertificate, PeerId)>>,
 }
 
 impl ConsensusState {
-    pub fn new(initial_qc: QuorumCertificate, _initial_block_hash: Vec<u8>) -> Self {
+    pub fn new(initial_qc: QuorumCertificate, _initial_batch_hash: Vec<u8>) -> Self {
         Self {
             core_state: Arc::new(RwLock::new(CoreConsensusState {
                 current_round: 0,
@@ -68,8 +68,8 @@ impl ConsensusState {
                 step_start_time: Instant::now(),
                 highest_seen_qc: initial_qc.clone(),
                 velocity_votes: HashMap::new(),
-                processed_optimistic_blocks: HashSet::new(),
-                optimistically_confirmed_blocks: Vec::new(),
+                processed_optimistic_batches: HashSet::new(),
+                optimistically_confirmed_batches: Vec::new(),
             })),
             pending_proposals: Arc::new(RwLock::new(HashMap::new())),
             proposal_queues: Arc::new(RwLock::new(ProposalQueues {
@@ -77,7 +77,7 @@ impl ConsensusState {
                 pending_proposals_awaiting_parent_state: HashMap::new(),
                 premature_proposals: HashMap::new(),
                 stale_qc_request: HashMap::new(),
-                pending_qc_waiting_for_block: HashMap::new(),
+                pending_qc_waiting_for_batch: HashMap::new(),
             })),
             recently_processed_hashes: Arc::new(RwLock::new(LruCache::new(
                 NonZeroUsize::new(1000).unwrap(),
@@ -87,8 +87,8 @@ impl ConsensusState {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
-pub struct PendingBlock {
-    pub header: BlockHeader,
+pub struct PendingBatch {
+    pub header: BatchHeader,
     pub payloads: Vec<crate::AppPayload>,
     pub parent_qc: QuorumCertificate,
     pub round: u64,
@@ -97,7 +97,7 @@ pub struct PendingBlock {
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct VelocityVote {
     pub round_id: u64,
-    pub block_hash: Vec<u8>,
+    pub batch_hash: Vec<u8>,
     pub voter_address: Address,
     #[serde(with = "serde_bytes")]
     pub signature: Signature,
@@ -113,7 +113,7 @@ impl VelocityVote {
     pub fn canonical_bytes(&self, voter_public_key: &[u8]) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&self.round_id.to_be_bytes());
-        data.extend_from_slice(&self.block_hash);
+        data.extend_from_slice(&self.batch_hash);
         data.extend_from_slice(voter_public_key);
         data
     }
@@ -142,7 +142,7 @@ impl VelocityVote {
 #[serde_as]
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct OptimisticConfirmation {
-    pub header: BlockHeader,
+    pub header: BatchHeader,
     #[serde_as(as = "Vec<Bytes>")]
     pub payload_hashes: Vec<Vec<u8>>,
     pub parent_qc: QuorumCertificate,
@@ -160,7 +160,7 @@ pub struct FinalityCertificate {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub enum ConsensusMessage {
-    IntentBatchProposal(Box<Block>),
+    IntentBatchProposal(Box<PayloadBatch>),
     AegisVelocityVote(VelocityVote),
     AegisNewQuorumCertificate(QuorumCertificate),
     AegisFinalityCertificate(FinalityCertificate),
@@ -176,7 +176,7 @@ impl ConsensusMessage {
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
 pub struct PartialVote {
-    pub block_hash: Vec<u8>,
+    pub batch_hash: Vec<u8>,
     pub view_number: u64,
     pub voter_address: Address,
     #[serde(with = "serde_bytes")]
@@ -197,7 +197,7 @@ pub struct PartialVote {
     Encode,
 )]
 pub struct QuorumCertificate {
-    pub block_hash: Vec<u8>,
+    pub batch_hash: Vec<u8>,
     pub view_number: u64,
     #[serde_as(as = "Vec<(_, Bytes)>")]
     pub signatures: Vec<(Address, Signature)>,
@@ -206,13 +206,12 @@ pub struct QuorumCertificate {
 impl QuorumCertificate {
     pub fn genesis_qc() -> Self {
         Self {
-            block_hash: vec![0; 32],
+            batch_hash: vec![0; 32],
             view_number: 0,
             signatures: vec![],
         }
     }
 }
-
 
 #[derive(Clone)]
 pub struct ConsensusEngine {
@@ -226,8 +225,6 @@ pub struct ConsensusEngine {
     pub tx_gossip: mpsc::Sender<ChainMessage>,
     pub chain_id: String,
 }
-
-
 
 impl ConsensusEngine {
     pub async fn run(
@@ -271,7 +268,7 @@ impl ConsensusEngine {
                 let core = self.state.core_state.read().await;
                 (
                     core.highest_seen_qc.view_number,
-                    core.highest_seen_qc.block_hash.clone(),
+                    core.highest_seen_qc.batch_hash.clone(),
                     core.current_round,
                     core.current_step,
                     core.step_start_time,
@@ -353,7 +350,7 @@ impl ConsensusEngine {
             (
                 core.current_round,
                 core.current_step,
-                core.highest_seen_qc.block_hash.clone(),
+                core.highest_seen_qc.batch_hash.clone(),
             )
         };
 
@@ -401,15 +398,15 @@ impl ConsensusEngine {
         // TODO: Get payloads from Mempool
         let valid_payloads = vec![];
 
-        let block_proposal = Block {
-            header: BlockHeader {
+        let batch_proposal = PayloadBatch {
+            header: BatchHeader {
                 index: 0,          // TODO: Derive index
                 prev_hash: vec![], // TODO: Derive prev hash
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_millis() as u64,
-                transactions_root: Block::calculate_payloads_root(&valid_payloads),
+                payloads_root: PayloadBatch::calculate_payloads_root(&valid_payloads),
                 authority: self.my_address,
                 signature: vec![],
             },
@@ -418,24 +415,24 @@ impl ConsensusEngine {
             round,
         };
 
-        let mut block_proposal = block_proposal;
-        let data_to_sign = block_proposal.header.canonical_bytes_for_signing();
-        block_proposal.header.signature = self
+        let mut batch_proposal = batch_proposal;
+        let data_to_sign = batch_proposal.header.canonical_bytes_for_signing();
+        batch_proposal.header.signature = self
             .validator_keys
             .signing_keys
             .sign(&data_to_sign)
             .to_vec();
 
-        let block_hash = block_proposal.header.calculate_hash();
+        let batch_hash = batch_proposal.header.calculate_hash();
         info!(
-            "[AEGIS PROPOSER] Mengusulkan blok baru #{} (hash: 0x{}) dengan {} transaksi.",
-            block_proposal.header.index,
-            hex::encode(&block_hash[..4]),
+            "[AEGIS PROPOSER] Mengusulkan batch baru #{} (hash: 0x{}) dengan {} payload.",
+            batch_proposal.header.index,
+            hex::encode(&batch_hash[..4]),
             valid_payloads.len()
         );
 
-        let pending_block = PendingBlock {
-            header: block_proposal.header.clone(),
+        let pending_batch = PendingBatch {
+            header: batch_proposal.header.clone(),
             payloads: valid_payloads.clone(),
             parent_qc,
             round,
@@ -444,12 +441,12 @@ impl ConsensusEngine {
             .pending_proposals
             .write()
             .await
-            .insert(block_hash.clone(), pending_block);
+            .insert(batch_hash.clone(), pending_batch);
 
         if self
             .p2p_cmd_tx
             .send(P2pCommand::BroadcastConsensusMessage(
-                ConsensusMessage::IntentBatchProposal(Box::new(block_proposal.clone())),
+                ConsensusMessage::IntentBatchProposal(Box::new(batch_proposal.clone())),
             ))
             .await
             .is_err()
@@ -460,7 +457,7 @@ impl ConsensusEngine {
         let self_vote = {
             let vote = VelocityVote {
                 round_id: round,
-                block_hash: block_hash.clone(),
+                batch_hash: batch_hash.clone(),
                 voter_address: self.my_address,
                 signature: [0; crypto::SIGNATURE_SIZE].to_vec(),
             };
@@ -472,11 +469,11 @@ impl ConsensusEngine {
             .write()
             .await
             .velocity_votes
-            .entry(block_hash.clone())
+            .entry(batch_hash.clone())
             .or_default()
             .push(self_vote);
 
-        self.process_votes_for_block(&block_hash).await;
+        self.process_votes_for_batch(&batch_hash).await;
     }
 
     #[async_recursion]
@@ -507,8 +504,8 @@ impl ConsensusEngine {
         }
 
         match msg {
-            ConsensusMessage::IntentBatchProposal(block) => {
-                self.handle_block_proposal(*block, source_peer).await;
+            ConsensusMessage::IntentBatchProposal(batch) => {
+                self.handle_batch_proposal(*batch, source_peer).await;
             }
             ConsensusMessage::AegisVelocityVote(vote) => {
                 self.handle_velocity_vote(vote).await;
@@ -522,7 +519,7 @@ impl ConsensusEngine {
         }
     }
 
-    async fn handle_block_proposal(&self, _block: Block, source_peer: PeerId) {
+    async fn handle_batch_proposal(&self, _batch: PayloadBatch, source_peer: PeerId) {
         // Dummy implementation for stateless sequencer
         info!("[AEGIS] Memproses proposal blok dari {}", source_peer);
         self.pre_validate_proposal_concurrently().await;
@@ -531,34 +528,34 @@ impl ConsensusEngine {
     #[async_recursion]
     async fn pre_validate_proposal_concurrently(&self) { }
     
-    async fn process_votes_for_block(&self, _block_hash: &[u8]) {}
+    async fn process_votes_for_batch(&self, _batch_hash: &[u8]) {}
 
     async fn handle_velocity_vote(&self, vote: VelocityVote) {
-        let block_hash = vote.block_hash.clone();
+        let batch_hash = vote.batch_hash.clone();
 
         if self
             .state
             .core_state
             .read()
             .await
-            .processed_optimistic_blocks
-            .contains(&block_hash)
+            .processed_optimistic_batches
+            .contains(&batch_hash)
         {
             return;
         }
 
         {
             let mut core = self.state.core_state.write().await;
-            let votes_for_block = core.velocity_votes.entry(block_hash.clone()).or_default();
-            if !votes_for_block
+            let votes_for_batch = core.velocity_votes.entry(batch_hash.clone()).or_default();
+            if !votes_for_batch
                 .iter()
                 .any(|v| v.voter_address == vote.voter_address)
             {
-                votes_for_block.push(vote);
+                votes_for_batch.push(vote);
             }
         }
 
-        self.process_votes_for_block(&block_hash).await;
+        self.process_votes_for_batch(&batch_hash).await;
     }
 
     async fn handle_new_quorum_certificate(&self, qc: QuorumCertificate, source_peer: PeerId) {
@@ -575,7 +572,7 @@ impl ConsensusEngine {
             return;
         }
 
-        let new_block_hash = qc.block_hash.clone();
+        let new_batch_hash = qc.batch_hash.clone();
         let parent_exists_locally;
 
         {
@@ -589,25 +586,25 @@ impl ConsensusEngine {
                     .pending_proposals
                     .read()
                     .await
-                    .contains_key(&new_block_hash);
+                    .contains_key(&new_batch_hash);
             } else {
                 return;
             }
         }
 
         if !parent_exists_locally {
-            warn!("[AEGIS SYNC PROAKTIF] Menerima QC untuk blok 0x{} yang tidak kita miliki. Meminta data lengkap.", hex::encode(&new_block_hash[..4]));
+            warn!("[AEGIS SYNC PROAKTIF] Menerima QC untuk batch 0x{} yang tidak kita miliki. Meminta data lengkap.", hex::encode(&new_batch_hash[..4]));
 
             self.state
                 .proposal_queues
                 .write()
                 .await
                 .stale_qc_request
-                .insert(new_block_hash.clone(), (qc.view_number, Instant::now()));
+                .insert(new_batch_hash.clone(), (qc.view_number, Instant::now()));
 
             let cmd = P2pCommand::SendDirectRequest {
                 destination: source_peer,
-                request: SyncRequest::GetFullProposal(new_block_hash),
+                request: SyncRequest::GetFullProposal(new_batch_hash),
             };
             if self.p2p_cmd_tx.send(cmd).await.is_err() {
                 error!("[AEGIS] Gagal mengirim permintaan blok yang hilang ke P2P.");

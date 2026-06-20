@@ -77,9 +77,7 @@ impl Default for FullPublicKey {
     }
 }
 
-#[derive(
-    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, Encode, Decode,
-)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, Encode, Decode)]
 pub struct AppPayload(#[serde(with = "serde_bytes")] pub Vec<u8>);
 
 impl PartialEq for AppPayload {
@@ -104,25 +102,25 @@ impl AppPayload {
 
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct BlockHeader {
+pub struct BatchHeader {
     pub index: u64,
     #[serde(with = "serde_bytes")]
     pub prev_hash: Vec<u8>,
     pub timestamp: u64,
     #[serde(with = "serde_bytes")]
-    pub transactions_root: Vec<u8>,
+    pub payloads_root: Vec<u8>,
     pub authority: Address,
     #[serde(with = "serde_bytes")]
     pub signature: Signature,
 }
 
-impl BlockHeader {
+impl BatchHeader {
     pub fn calculate_hash(&self) -> Vec<u8> {
         let mut hasher = sha2::Sha256::new();
         hasher.update(&self.index.to_be_bytes());
         hasher.update(&self.prev_hash);
         hasher.update(&self.timestamp.to_be_bytes());
-        hasher.update(&self.transactions_root);
+        hasher.update(&self.payloads_root);
         hasher.update(self.authority.as_ref());
         hasher.finalize().to_vec()
     }
@@ -132,20 +130,20 @@ impl BlockHeader {
         data.extend_from_slice(&self.index.to_be_bytes());
         data.extend_from_slice(&self.prev_hash);
         data.extend_from_slice(&self.timestamp.to_be_bytes());
-        data.extend_from_slice(&self.transactions_root);
+        data.extend_from_slice(&self.payloads_root);
         data
     }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone)]
-pub struct Block {
-    pub header: BlockHeader,
+pub struct PayloadBatch {
+    pub header: BatchHeader,
     pub payloads: Vec<AppPayload>,
     pub justify: crate::consensus::QuorumCertificate,
     pub round: u64,
 }
 
-impl Block {
+impl PayloadBatch {
     pub fn calculate_payloads_root(payloads: &[AppPayload]) -> Vec<u8> {
         let mut hasher = sha2::Sha256::new();
         for payload in payloads {

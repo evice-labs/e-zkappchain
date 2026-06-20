@@ -1,8 +1,9 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use bincode::{Decode, Encode};
 use std::cmp::Ordering;
+use sha2::Digest;
 
 use sequencer_core::{Address, FullPublicKey, Signature, VrfPublicKeyBytes};
 

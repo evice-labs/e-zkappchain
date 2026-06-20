@@ -69,15 +69,15 @@ fn events_to_fills_json(events: &[EngineEvent]) -> Vec<serde_json::Value> {
     events
         .iter()
         .filter_map(|e| match e {
-            EngineEvent::Trade {
-                taker_order_id,
-                maker_order_id,
+            EngineEvent::TradeExecuted {
+                taker_id,
+                maker_id,
                 price,
                 quantity,
                 ..
             } => Some(serde_json::json!({
-                "maker_order_id": maker_order_id,
-                "taker_order_id": taker_order_id,
+                "maker_order_id": maker_id,
+                "taker_order_id": taker_id,
                 "price": price,
                 "quantity": quantity,
             })),
