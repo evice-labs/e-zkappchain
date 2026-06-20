@@ -69,7 +69,3 @@ The `e-zkappchain` is designed to be a premier citizen of the **Logos Execution 
 3.  **`e-zkappchain-ui`**: A unified frontend application that will interact with the solver-network and the sequencer. It will provide users with a seamless, single-click trading experience across multiple chains, powered by the intent-based backend.
 
 By decoupling the sequencer (Core) from the Matching Engine (App), we have laid the groundwork for an infrastructure that can scale horizontally across the entire Logos multi-chain landscape.
-
----
-
-*Built for the Logos Execution Zone.*
