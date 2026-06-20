@@ -11,4 +11,3 @@ node4_data/
 *.wal
 
 .env
-crates/
