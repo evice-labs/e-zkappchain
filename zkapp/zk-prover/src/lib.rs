@@ -1,5 +1,3 @@
-// crates/zk-prover/src/lib.rs
-
 use p3_air::{Air, AirBuilder, BaseAir};
 use p3_matrix::Matrix;
 

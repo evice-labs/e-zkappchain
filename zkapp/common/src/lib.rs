@@ -1,5 +1,3 @@
-// crates/common/src/lib.rs
-
 use alloy_primitives::{Address, Bytes, U256};
 use serde::{Deserialize, Serialize};
 

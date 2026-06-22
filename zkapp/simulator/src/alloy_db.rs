@@ -1,5 +1,3 @@
-// crates/simulator/src/alloy_db.rs
-
 use alloy::network::Ethereum;
 use alloy::providers::{Provider, RootProvider};
 use alloy_primitives::{Address, B256, U256};

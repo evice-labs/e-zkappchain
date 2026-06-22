@@ -1,12 +1,10 @@
-// crates/sequencer-node/src/main.rs
-
 use std::{
     collections::HashMap,
     fs::{self, File},
+    io::Write,
     path::Path,
     pin::Pin,
     str::FromStr,
-    io::Write,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -20,28 +18,24 @@ use axum::{
     response::IntoResponse,
 };
 
-use blst::min_pk::SecretKey as BlsSecretKey;
 use clap::Parser;
+use common::transaction::{Transaction, TransactionData};
 use engine::processor::Command;
 use engine::{EngineEvent, Side as EngineSide};
 use libp2p::identity::{ed25519, Keypair as P2pKeypair};
 use libp2p::PeerId;
 use log::{error, info, warn};
-use rand::{Rng, RngCore};
+use rand::Rng;
 use rpassword::read_password;
 use schnorrkel::SecretKey as SchnorrkelSecretKey;
-use sequencer_core::{
-    consensus::{
-        ConsensusEngine, ConsensusMessage, ConsensusState,
-        QuorumCertificate,
-    },
+use evice_multi_sequencer::{
+    consensus::{ConsensusEngine, ConsensusMessage, ConsensusState, QuorumCertificate},
     crypto::{public_key_to_address, KeyPair, ValidatorKeys},
     genesis::{Genesis, GenesisAccount},
     keystore::Keystore,
     p2p::{self, P2pCommand, SyncResponse},
     ChainMessage,
 };
-use common::transaction::{Transaction, TransactionData};
 use tokio::{
     select,
     sync::{broadcast, mpsc, oneshot, Mutex, RwLock},
@@ -63,7 +57,11 @@ pub mod trading {
     tonic::include_proto!("trading");
 }
 
-type ConsensusMsgTuple = (ConsensusMessage, PeerId, Option<oneshot::Sender<SyncResponse>>);
+type ConsensusMsgTuple = (
+    ConsensusMessage,
+    PeerId,
+    Option<oneshot::Sender<SyncResponse>>,
+);
 
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
@@ -95,8 +93,7 @@ struct Args {
     keystore_path: Option<String>,
     #[clap(long)]
     vrf_priv_key: Option<String>,
-    #[clap(long)]
-    bls_private_key: Option<String>,
+
     #[clap(long)]
     password: Option<String>,
 }
@@ -150,7 +147,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         for (i, keys) in validator_keys_generated.iter().enumerate() {
             let address_hex = hex::encode(keys.signing_keys.public_key_bytes());
-            let bls_public_key = keys.bls_secret_key.sk_to_pk();
 
             let p2p_key = &p2p_keypairs[i];
             let peer_id = PeerId::from(p2p_key.public());
@@ -161,7 +157,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let account = GenesisAccount {
                 public_key: address_hex.clone(),
                 vrf_public_key: Some(hex::encode(keys.vrf_keys.public.to_bytes())),
-                bls_public_key: Some(hex::encode(bls_public_key.to_bytes())),
                 network_identity: Some(multiaddr),
             };
             genesis_accounts.insert(address_hex, account);
@@ -171,11 +166,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             genesis_time: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs(),
-            chain_id: "evice-testnet-v1".to_string(),
+            chain_id: "evice-blockchain-v1".to_string(),
 
-            parameters: sequencer_core::genesis::GenesisParameters {
-                aegis_sub_committee_size: 6,
-                aegis_gravity_epoch_length: 10,
+            parameters: evice_multi_sequencer::genesis::GenesisParameters {
+                sub_committee_size: 6,
                 proposer_timeout_ms: 1200,
             },
             accounts: genesis_accounts,
@@ -189,7 +183,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("             KUNCI VALIDATOR GENESIS (UNTUK SCRIPT)                       ");
         println!("==========================================================================");
         for (i, keys) in validator_keys_generated.iter().enumerate() {
-            let bls_public_key = keys.bls_secret_key.sk_to_pk();
             println!("\n--- Validator {} ---", i + 1);
             println!(
                 "Alamat (Sign PubKey): 0x{}",
@@ -206,14 +199,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             println!(
                 "VRF Secret Key:       0x{}",
                 hex::encode(keys.vrf_keys.secret.to_bytes())
-            );
-            println!(
-                "BLS Public Key:       0x{}",
-                hex::encode(bls_public_key.to_bytes())
-            );
-            println!(
-                "BLS Secret Key:       0x{}",
-                hex::encode(keys.bls_secret_key.to_bytes())
             );
         }
         println!("\n========================================================================");
@@ -268,10 +253,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .vrf_priv_key
                 .clone()
                 .expect("Node authority harus dijalankan dengan --vrf-private-key");
-            let bls_priv_key_hex = args
-                .bls_private_key
-                .clone()
-                .expect("Node authority harus dijalankan dengan --bls-private-key");
 
             info!("Membuka keystore dari: {}", keystore_path);
             let keystore = Keystore::from_path(&keystore_path)?;
@@ -298,16 +279,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .map_err(|_| "VRF private key tidak valid. Pastikan panjangnya 64-byte.")?;
             let vrf_keys = vrf_secret.to_keypair();
 
-            let mut ikm = [0u8; 32];
-            rand::rng().fill_bytes(&mut ikm);
-            let bls_secret_bytes = hex::decode(bls_priv_key_hex)?;
-            let bls_secret_key = BlsSecretKey::from_bytes(&bls_secret_bytes)
-                .map_err(|_| "BLS private key tidak valid.")?;
-
             Some(Arc::new(ValidatorKeys {
                 signing_keys,
                 vrf_keys,
-                bls_secret_key,
             }))
         } else {
             None
@@ -334,14 +308,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         if let Some(ref keys) = authority_validator_keys {
             let my_address = public_key_to_address(&keys.signing_keys.public_key_bytes());
-            let (initial_qc, initial_batch_hash) = {
-                let genesis_qc = QuorumCertificate::genesis_qc();
-                let genesis_hash = vec![0u8; 32];
-                (genesis_qc, genesis_hash)
-            };
+            let initial_qc = QuorumCertificate::genesis_qc();
 
-            let state_struct = ConsensusState::new(initial_qc, initial_batch_hash);
+            let state_struct = ConsensusState::new(initial_qc);
             consensus_state = Some(Arc::new(RwLock::new(state_struct.clone())));
+
+            let mempool = Arc::new(RwLock::new(Vec::new()));
 
             let engine = ConsensusEngine {
                 my_address,
@@ -352,7 +324,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 address_book: Arc::clone(&address_book),
                 pending_tx_requests: Arc::new(RwLock::new(HashMap::new())),
                 tx_gossip: tx_gossip.clone(),
+                mempool: mempool.clone(),
                 chain_id: chain_id.clone(),
+                genesis_params: genesis.parameters.clone(),
             };
             tokio::spawn(engine.run(consensus_msg_rx, txs_response_from_p2p_rx));
         }
@@ -493,8 +467,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     ChainMessage::NewPayload(payload) => {
                         // Jembatan: Deserialize AppPayload -> Transaction
                         if let Ok(tx) = borsh::from_slice::<Transaction>(&payload.0) {
-                            info!("Berhasil me-deserialize AppPayload menjadi Transaction dari: 0x{}", hex::encode(tx.sender().as_ref()));
-                            
+                            info!(
+                                "Berhasil me-deserialize AppPayload menjadi Transaction dari: 0x{}",
+                                hex::encode(tx.sender().as_ref())
+                            );
+
                             // Di sini nantinya tempat memetakan TransactionData ke engine::processor::Command
                             // Contoh sederhana:
                             match tx.data {
@@ -522,7 +499,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .with_state(broadcast_tx);
 
         let ws_addr = std::net::SocketAddr::from(([127, 0, 0, 1], args.ws_port));
-        info!(">>> WebSocket Market Data Server Listening on ws://127.0.0.1:{}/ws", args.ws_port);
+        info!(
+            ">>> WebSocket Market Data Server Listening on ws://127.0.0.1:{}/ws",
+            args.ws_port
+        );
 
         tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(ws_addr).await.unwrap();

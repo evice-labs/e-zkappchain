@@ -1,5 +1,3 @@
-// crates/zk-prover/src/bin/generate_verifier.rs
-
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -22,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Fungsi ini mensimulasikan output dari toolchain Plonky3 / Succinct
     let solidity_code = generate_solidity_verifier();
 
-    let out_dir = "../../l1-contracts/src";
+    let out_dir = "../../contracts/src";
     let file_path = Path::new(out_dir).join("EviceVerifier.sol");
 
     if let Some(parent) = file_path.parent() {

@@ -8,23 +8,23 @@ This repository implements a modular architecture designed to separate the decen
 
 The repository is divided into two primary domains:
 
-1. **`sequencer-core`**: A generic, application-agnostic decentralized sequencing framework.
+1. **`evice-multi-sequencer`**: A generic, application-agnostic decentralized sequencing framework.
 2. **`zkapp/*`**: The application layer containing the ZK-AppChain specific logic (DEX, Prover, Engine).
 
-### The `sequencer-core` Framework
+### The `evice-multi-sequencer` Framework
 
-`sequencer-core` is the beating heart of the decentralized network. It provides a robust, stateless P2P gossip network and consensus engine (Aegis Consensus) that guarantees message ordering and data availability.
+`evice-multi-sequencer` is the beating heart of the decentralized network. It provides a robust, stateless P2P gossip network and consensus engine (Aegis Consensus) that guarantees message ordering and data availability.
 
 **Key Features:**
 *   **Application Agnostic (`AppPayload`)**: The sequencer operates purely on raw bytes (`Vec<u8>`). It does not know if it is ordering financial transactions, chess moves, or social media posts.
 *   **Stateless by Default**: The consensus engine does not maintain the L1 state tree or evaluate smart contracts, making it incredibly lightweight and lightning-fast.
-*   **Plug-and-Play**: Any rust application can import `sequencer-core`, spawn the `ConsensusEngine`, and listen to the generic `ChainMessage::NewPayload` stream to build their own decentralized peer-to-peer node.
+*   **Plug-and-Play**: Any rust application can import `evice-multi-sequencer`, spawn the `ConsensusEngine`, and listen to the generic `ChainMessage::NewPayload` stream to build their own decentralized peer-to-peer node.
 
 ### The Application Layer (`zkapp/*`)
 
 The `zkapp/` directory houses the concrete implementation of our Decentralized Exchange (DEX).
 
-*   **`zkapp/node`**: The binary executable that connects the `sequencer-core` P2P network to the DEX Matching Engine via an asynchronous "Consensus Bridge".
+*   **`zkapp/node`**: The binary executable that connects the `evice-multi-sequencer` P2P network to the DEX Matching Engine via an asynchronous "Consensus Bridge".
 *   **`zkapp/engine`**: The highly optimized, in-memory Orderbook and Matching Engine.
 *   **`zkapp/common`**: Shared cryptographic types and data structures (e.g., the DEX `Transaction`, `BundleTx`).
 
@@ -65,7 +65,7 @@ This will initialize a new node, generate local P2P keypairs, and start the gRPC
 The `e-zkappchain` is designed to be a premier citizen of the **Logos Execution Zone**. As development progresses, the repository will evolve to support a fully Multi-Chain paradigm:
 
 1.  **Multi-Chain Intent Resolution**: The matching engine (`zkapp/engine`) will accept intents from various networks (e.g., Ethereum, NomOS, other Logos AppChains). The OFA solvers will route and settle these intents atomically, abstracting away the fragmentation of multi-chain liquidity.
-2.  **`e-zkappchain-core`**: The current `sequencer-core` will be packaged as a standalone, deployable consensus framework. Any developer in the Logos ecosystem will be able to spin up their own ZK-AppChain simply by importing this core and defining their own `AppPayload` logic.
+2.  **`e-zkappchain-core`**: The current `evice-multi-sequencer` will be packaged as a standalone, deployable consensus framework. Any developer in the Logos ecosystem will be able to spin up their own ZK-AppChain simply by importing this core and defining their own `AppPayload` logic.
 3.  **`e-zkappchain-ui`**: A unified frontend application that will interact with the solver-network and the sequencer. It will provide users with a seamless, single-click trading experience across multiple chains, powered by the intent-based backend.
 
 By decoupling the sequencer (Core) from the Matching Engine (App), we have laid the groundwork for an infrastructure that can scale horizontally across the entire Logos multi-chain landscape.

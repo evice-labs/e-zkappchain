@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sequencer-core = { workspace = true }
+evice-multi-sequencer = { workspace = true }
 engine = { workspace = true }
 common = { workspace = true }
 zk-prover = { workspace = true }
@@ -14,7 +14,6 @@ axum = { workspace = true }
 alloy = { workspace = true }
 alloy-primitives = { workspace = true }
 borsh = { workspace = true }
-blst = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 tokio = { workspace = true }

@@ -1,11 +1,11 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use bincode::{Decode, Encode};
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use std::cmp::Ordering;
 use sha2::Digest;
+use std::cmp::Ordering;
 
-use sequencer_core::{Address, FullPublicKey, Signature, VrfPublicKeyBytes};
+use evice_multi_sequencer::{Address, FullPublicKey, Signature, crypto::public_key_to_address};
 
 #[serde_as]
 #[derive(
@@ -58,10 +58,10 @@ pub enum TransactionData {
     DepositToL2 {
         amount: u64,
     },
-    UpdateVrfKey {
-        #[serde(with = "serde_bytes")]
-        new_vrf_public_key: VrfPublicKeyBytes,
-    },
+    // UpdateVrfKey {
+    //     #[serde(with = "serde_bytes")]
+    //     new_vrf_public_key: VrfPublicKeyBytes,
+    // },
     RegisterAsSequencer,
     DeregisterAsSequencer,
     DeployContract {
@@ -97,7 +97,7 @@ impl TransactionData {
                 BASE_TX_GAS + 150_000 + (code.len() as u64 * 200)
             }
             TransactionData::CallContract { .. } => BASE_TX_GAS + 5_000,
-            TransactionData::UpdateVrfKey { .. } => BASE_TX_GAS + 7_000,
+            // TransactionData::UpdateVrfKey { .. } => BASE_TX_GAS + 7_000,
             TransactionData::RegisterAsSequencer | TransactionData::DeregisterAsSequencer => {
                 BASE_TX_GAS + 10_000
             }
@@ -160,7 +160,7 @@ impl std::hash::Hash for Transaction {
 
 impl Transaction {
     pub fn sender(&self) -> Address {
-        sequencer_core::crypto::public_key_to_address(&self.sender_public_key.0)
+        public_key_to_address(&self.sender_public_key.0)
     }
 
     pub fn canonical_bytes(&self) -> Vec<u8> {

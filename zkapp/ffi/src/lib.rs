@@ -1,5 +1,3 @@
-// crates/ffi/src/lib.rs
-//
 // Evice Intent-Centric Engine — FFI Library
 //
 // This crate provides C-compatible bindings for the Evice matching engine,

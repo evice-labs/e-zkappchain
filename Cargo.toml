@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "sequencer-core",
+    "evice-multi-sequencer",
     "zkapp/common",
     "zkapp/engine",
     "zkapp/ffi",
@@ -15,10 +15,10 @@ members = [
 
 [workspace.dependencies]
 # Internal Crates
+evice-multi-sequencer = { path = "evice-multi-sequencer" }
 common = { path = "zkapp/common" }
 engine = { path = "zkapp/engine" }
 simulator = { path = "zkapp/simulator" }
-sequencer-core = { path = "sequencer-core" }
 zk-prover = { path = "zkapp/zk-prover" }
 zk-core = { path = "zkapp/zk-core" }
 
@@ -106,7 +106,6 @@ cbc = "0.1.2"
 ecdsa = { version = "0.16.9" }
 signature = { version = "2.2.0" }
 zeroize = "1.8.1"
-blst = { version = "0.3.15", default-features = false, features = ["serde"] }
 rand_core = "0.6.4"
 
 # ZK-SNARKs (arkworks)

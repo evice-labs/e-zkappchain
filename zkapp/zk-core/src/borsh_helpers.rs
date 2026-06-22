@@ -1,5 +1,3 @@
-// evice-core/src/borsh_helpers.rs
-
 use crate::{MerkleTreeConfig, Vec};
 use ark_bls12_377::Fr;
 use ark_crypto_primitives::merkle_tree::Path;

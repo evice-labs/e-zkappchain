@@ -1,5 +1,3 @@
-// crates/user-client/src/main.rs
-
 use anyhow::Result;
 use tracing::{info, warn};
 use trading::trading_engine_client::TradingEngineClient;

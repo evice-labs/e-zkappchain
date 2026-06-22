@@ -1,5 +1,3 @@
-// crates/engine-core/src/wal.rs
-
 use anyhow::Result;
 use bincode::config;
 use std::fs::{File, OpenOptions};

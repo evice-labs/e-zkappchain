@@ -1,5 +1,3 @@
-// evice-core/src/lib.rs
-
 #![no_std]
 extern crate alloc;
 

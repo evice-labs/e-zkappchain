@@ -1,5 +1,3 @@
-// crates/engine-core/src/lib.rs
-
 use serde::{Deserialize, Serialize};
 use slab::Slab;
 use std::collections::{BTreeMap, HashMap, VecDeque};

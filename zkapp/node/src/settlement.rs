@@ -1,5 +1,3 @@
-// crates/sequencer-node/src/settlement.rs
-
 use alloy::{
     network::EthereumWallet,
     providers::{Provider, ProviderBuilder},

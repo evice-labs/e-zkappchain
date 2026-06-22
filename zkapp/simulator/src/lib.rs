@@ -1,7 +1,3 @@
-// crates/simulator/src/lib.rs
-
-pub mod alloy_db;
-
 use alloy_primitives::{Address, Bytes, I256, U256};
 use anyhow::Result;
 use revm::bytecode::Bytecode;
@@ -14,6 +10,8 @@ use revm::{Context, ExecuteCommitEvm, ExecuteEvm, MainBuilder, MainContext};
 use url::Url;
 
 use crate::alloy_db::AlloyDB;
+
+pub mod alloy_db;
 
 #[derive(Debug)]
 pub struct SimOutput {
@@ -236,7 +234,7 @@ impl EvmSimulator {
         tx.kind = TxKind::Call(to);
         tx.data = calldata;
         tx.gas_limit = 1_000_000;
-        tx.gas_price = 1; // Harga dummy untuk simulasi view
+        tx.gas_price = 1; 
         tx.value = U256::ZERO;
 
         let mut evm = Context::mainnet().with_db(&mut self.db).build_mainnet();

@@ -1,5 +1,3 @@
-// crates/ffi/src/error.rs
-//
 // Error handling for the Evice FFI layer.
 // Uses numeric error codes following the LEZ wallet-ffi pattern.
 

@@ -1,5 +1,3 @@
-// crates/engine-core/src/processor.rs
-
 use std::collections::{BTreeMap, HashMap};
 use tokio::{
     sync::{broadcast, mpsc},

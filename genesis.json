@@ -2,8 +2,7 @@
   "genesis_time": 1781866804,
   "chain_id": "evice-testnet-v1",
   "parameters": {
-    "aegis_sub_committee_size": 6,
-    "aegis_gravity_epoch_length": 10,
+    "sub_committee_size": 6,
     "proposer_timeout_ms": 1200
   },
   "accounts": {
