@@ -1,5 +1,3 @@
-// crates/sequencer-node/src/lib.rs
-
 use bincode::{Decode, Encode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -9,29 +7,29 @@ use std::convert::AsRef;
 use crate::crypto::{ADDRESS_SIZE, PUBLIC_KEY_SIZE};
 
 pub type Signature = Vec<u8>;
-pub type VrfPublicKeyBytes = [u8; 32];
 
 pub mod consensus;
 pub mod crypto;
+pub mod error;
 pub mod genesis;
 pub mod keystore;
 pub mod p2p;
 
 #[derive(
-    Debug, 
-    Clone, 
-    Copy, 
-    PartialEq, 
-    Eq, 
-    Hash, 
-    BorshSerialize, 
-    BorshDeserialize, 
-    Serialize, 
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    BorshSerialize,
+    BorshDeserialize,
+    Serialize,
     Deserialize,
     Encode,
     Decode,
     PartialOrd,
-    Ord
+    Ord,
 )]
 pub struct Address(pub [u8; ADDRESS_SIZE]);
 
@@ -77,7 +75,9 @@ impl Default for FullPublicKey {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, Encode, Decode)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, Eq, Encode, Decode,
+)]
 pub struct AppPayload(#[serde(with = "serde_bytes")] pub Vec<u8>);
 
 impl PartialEq for AppPayload {
@@ -100,7 +100,6 @@ impl AppPayload {
     }
 }
 
-
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct BatchHeader {
     pub index: u64,
@@ -110,6 +109,10 @@ pub struct BatchHeader {
     #[serde(with = "serde_bytes")]
     pub payloads_root: Vec<u8>,
     pub authority: Address,
+    #[serde(with = "serde_bytes")]
+    pub vrf_output: Vec<u8>,
+    #[serde(with = "serde_bytes")]
+    pub vrf_proof: Vec<u8>,
     #[serde(with = "serde_bytes")]
     pub signature: Signature,
 }
@@ -122,6 +125,9 @@ impl BatchHeader {
         hasher.update(&self.timestamp.to_be_bytes());
         hasher.update(&self.payloads_root);
         hasher.update(self.authority.as_ref());
+        hasher.update(&self.vrf_output);
+        hasher.update(&self.vrf_proof);
+        hasher.update(&self.signature);
         hasher.finalize().to_vec()
     }
 
@@ -131,6 +137,9 @@ impl BatchHeader {
         data.extend_from_slice(&self.prev_hash);
         data.extend_from_slice(&self.timestamp.to_be_bytes());
         data.extend_from_slice(&self.payloads_root);
+        data.extend_from_slice(self.authority.as_ref());
+        data.extend_from_slice(&self.vrf_output);
+        data.extend_from_slice(&self.vrf_proof);
         data
     }
 }
