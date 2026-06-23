@@ -64,7 +64,7 @@ This will initialize a new node, generate local P2P keypairs, and start the gRPC
 
 The `e-zkappchain` is designed to be a premier citizen of the **Logos Execution Zone**. As development progresses, the repository will evolve to support a fully Multi-Chain paradigm:
 
-1.  **Multi-Chain Intent Resolution**: The matching engine (`zkapp/engine`) will accept intents from various networks (e.g., Ethereum, NomOS, other Logos AppChains). The OFA solvers will route and settle these intents atomically, abstracting away the fragmentation of multi-chain liquidity.
+1.  **Multi-Chain Intent Resolution**: The matching engine (`zkapp/engine`) will accept intents from various networks (e.g., Ethereum, other Logos AppChains). The OFA solvers will route and settle these intents atomically, abstracting away the fragmentation of multi-chain liquidity.
 2.  **`e-zkappchain-core`**: The current `evice-multi-sequencer` will be packaged as a standalone, deployable consensus framework. Any developer in the Logos ecosystem will be able to spin up their own ZK-AppChain simply by importing this core and defining their own `AppPayload` logic.
 3.  **`e-zkappchain-ui`**: A unified frontend application that will interact with the solver-network and the sequencer. It will provide users with a seamless, single-click trading experience across multiple chains, powered by the intent-based backend.
 
